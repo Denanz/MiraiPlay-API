@@ -1,0 +1,49 @@
+name: miraihub
+
+services:
+  miraihub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: miraihub
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - STATE_DIR=/app/.state
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - miraihub-state:/app/.state
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - miraihub-net
+      - hoarder_hoarder-net
+
+volumes:
+  miraihub-state:
+
+networks:
+  miraihub-net:
+    driver: bridge
+  # Shared with services-nginx so it can reach this container as `miraihub:3000`.
+  hoarder_hoarder-net:
+    external: true

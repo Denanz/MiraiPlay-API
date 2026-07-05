@@ -1,0 +1,31 @@
+{
+  "name": "miraihub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MiraiHub — gateway/edge layer in front of a public anime API",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsup",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/formbody": "^8.0.1",
+    "@fastify/websocket": "^11.0.1",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.1.0",
+    "sharp": "^0.35.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

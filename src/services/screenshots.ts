@@ -1,0 +1,124 @@
+import { createHmac } from 'node:crypto';
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import type { ReadStream } from 'node:fs';
+import { join } from 'node:path';
+import { settings } from '../config/settings.js';
+
+/**
+ * Per-user screenshot gallery stored on disk. A user is addressed by an opaque
+ * "bucket" — an HMAC of their token — never by a client-supplied id, so one user
+ * can't enumerate or touch another's gallery (no IDOR). The bucket in a file URL
+ * is itself the capability.
+ */
+
+export interface ShotMeta {
+  id: string;
+  releaseId?: string;
+  title?: string;
+  episode?: number;
+  time?: number;
+  note?: string;
+  createdAt: number;
+  ext: 'jpg' | 'png';
+}
+
+const ROOT = join(settings.STATE_DIR, 'screenshots');
+const ID_RE = /^[A-Za-z0-9_-]+$/;
+
+export function bucketFor(token: string): string {
+  const secret = settings.GATEWAY_KEY || 'miraihub';
+  return createHmac('sha256', secret).update(token).digest('hex').slice(0, 32);
+}
+
+const safe = (v: string): string => (ID_RE.test(v) ? v : '');
+const bucketDir = (bucket: string) => join(ROOT, bucket);
+const indexFile = (bucket: string) => join(bucketDir(bucket), 'index.json');
+
+function readIndex(bucket: string): ShotMeta[] {
+  try {
+    return JSON.parse(readFileSync(indexFile(bucket), 'utf8')) as ShotMeta[];
+  } catch {
+    return [];
+  }
+}
+
+function writeIndex(bucket: string, list: ShotMeta[]): void {
+  mkdirSync(bucketDir(bucket), { recursive: true });
+  writeFileSync(indexFile(bucket), JSON.stringify(list));
+}
+
+export function saveShot(
+  bucket: string,
+  bytes: Buffer,
+  ext: 'jpg' | 'png',
+  meta: Omit<ShotMeta, 'id' | 'createdAt' | 'ext'>,
+): ShotMeta {
+  const b = safe(bucket);
+  if (!b) throw new Error('bad bucket');
+  mkdirSync(bucketDir(b), { recursive: true });
+
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const entry: ShotMeta = { id, createdAt: Date.now(), ext, ...meta };
+  writeFileSync(join(bucketDir(b), `${id}.${ext}`), bytes);
+
+  const list = readIndex(b);
+  list.unshift(entry);
+  writeIndex(b, list);
+  return entry;
+}
+
+export function listShots(bucket: string): ShotMeta[] {
+  const b = safe(bucket);
+  return b ? readIndex(b) : [];
+}
+
+export function openShot(bucket: string, id: string): { stream: ReadStream; ext: string } | null {
+  const b = safe(bucket);
+  const sid = safe(id);
+  if (!b || !sid) return null;
+  const meta = readIndex(b).find((m) => m.id === sid);
+  if (!meta) return null;
+  const file = join(bucketDir(b), `${sid}.${meta.ext}`);
+  return existsSync(file) ? { stream: createReadStream(file), ext: meta.ext } : null;
+}
+
+export function removeShot(bucket: string, id: string): boolean {
+  const b = safe(bucket);
+  const sid = safe(id);
+  if (!b || !sid) return false;
+  const list = readIndex(b);
+  const meta = list.find((m) => m.id === sid);
+  if (!meta) return false;
+  try {
+    unlinkSync(join(bucketDir(b), `${sid}.${meta.ext}`));
+  } catch {
+    // already gone
+  }
+  writeIndex(
+    b,
+    list.filter((m) => m.id !== sid),
+  );
+  return true;
+}
+
+/** Attach (or clear) a free-text note on one screenshot. */
+export function setNote(bucket: string, id: string, note: string): boolean {
+  const b = safe(bucket);
+  const sid = safe(id);
+  if (!b || !sid) return false;
+  const list = readIndex(b);
+  const meta = list.find((m) => m.id === sid);
+  if (!meta) return false;
+  const trimmed = note.trim().slice(0, 2000);
+  if (trimmed) meta.note = trimmed;
+  else delete meta.note;
+  writeIndex(b, list);
+  return true;
+}

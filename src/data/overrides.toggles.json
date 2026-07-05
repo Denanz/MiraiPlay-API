@@ -1,0 +1,15 @@
+{
+  "minVersionCode": 0,
+  "lastVersionCode": 0,
+  "minGPVersionCode": 0,
+  "lastGPVersionCode": 0,
+  "inAppUpdates": false,
+  "overrideGPVersion": false,
+  "whatsNew": "",
+  "gpWhatsNew": "",
+  "downloadLink": "",
+  "gpDownloadLink": "",
+  "impMessageEnabled": false,
+  "impMessageText": "",
+  "impMessageLink": ""
+}
