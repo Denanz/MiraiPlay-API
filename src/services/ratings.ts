@@ -1,9 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { settings } from '../config/settings.js';
-import { bucketFor } from './screenshots.js';
 
-export { bucketFor };
 
 interface RatingEntry {
   rating: number; // 1–10

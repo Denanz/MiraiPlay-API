@@ -12,6 +12,7 @@ import { registerRelease } from './features/release.js';
 import { registerPlayer } from './features/player.js';
 import { registerTogether } from './features/together.js';
 import { registerApp } from './features/app.js';
+import { registerAdmin } from './features/admin.js';
 import { registerPassthrough } from './gateway/passthrough.js';
 
 /**
@@ -53,6 +54,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       registerPlayer(scope);
       registerTogether(scope);
       registerApp(scope);
+      registerAdmin(scope);
       registerPassthrough(scope);
     },
     { prefix: '/api/v1' },

@@ -42,6 +42,10 @@ interface Subscriber {
   chatId: string;
   seen: Record<string, number>;
   updatedAt: number;
+  // Тайтлы, по которым не нужны еженедельные пинги — нужен ОДИН сигнал, когда
+  // сезон вышел целиком. Держим прямо здесь: обходчик и так каждый раз читает
+  // episodes_released/episodes_total по всем спискам, отдельный опрос не нужен.
+  awaitFull?: Record<string, true>;
 }
 
 type Registry = Record<string, Subscriber>; // keyed by chatId
@@ -141,6 +145,34 @@ export function setNotifyToken(token: string): void {
 }
 
 /** The chat id this account saved, for prefilling the Settings input. */
+/** Список тайтлов, по которым пользователь ждёт полного выхода. */
+export function getAwaitFull(userId: number): string[] {
+  if (!userId) return [];
+  for (const sub of Object.values(registry)) {
+    if (sub.userId === userId) return Object.keys(sub.awaitFull || {});
+  }
+  return [];
+}
+
+/**
+ * Включить или выключить ожидание полного выхода.
+ * Возвращает false, если у пользователя ещё не привязан Telegram — уведомлять
+ * попросту некуда, и молча «включать» флаг было бы обманом.
+ */
+export function setAwaitFull(userId: number, releaseId: string, on: boolean): boolean {
+  if (!userId || !releaseId) return false;
+  for (const sub of Object.values(registry)) {
+    if (sub.userId !== userId) continue;
+    sub.awaitFull = sub.awaitFull || {};
+    if (on) sub.awaitFull[releaseId] = true;
+    else delete sub.awaitFull[releaseId];
+    sub.updatedAt = Date.now();
+    persist();
+    return true;
+  }
+  return false;
+}
+
 export function getChatId(userId: number): string {
   if (!userId) return '';
   for (const sub of Object.values(registry)) {
@@ -182,6 +214,24 @@ async function checkSubscriber(sub: Subscriber): Promise<{ checked: number; noti
     checked++;
     const prev = sub.seen[id];
     sub.seen[id] = cur;
+
+    // Режим «дождусь целиком»: понедельные уведомления подавляем, а когда сезон
+    // закрылся — шлём один сигнал и снимаем флаг, чтобы не повторяться.
+    if (sub.awaitFull?.[id]) {
+      const total = Number(it.episodes_total) || 0;
+      if (!first && total > 0 && cur >= total && notified < 10) {
+        notified++;
+        delete sub.awaitFull[id];
+        await sendTo(
+          sub.chatId,
+          `✅ <b>${escapeTg(it.title_ru || 'Аниме')}</b>\n` +
+            `Вышло целиком — <b>${total}</b> серий, можно смотреть запоем\n` +
+            `https://anime.denanz.fun/release/${id}`,
+        ).catch(() => {});
+      }
+      continue;
+    }
+
     if (!first && prev !== undefined && cur > prev && notified < 10) {
       notified++;
       const total = it.episodes_total ? ` из ${it.episodes_total}` : '';

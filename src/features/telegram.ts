@@ -49,7 +49,13 @@ async function handleCallback(cb: any): Promise<void> {
 
 async function handleCommand(text: string): Promise<void> {
   const [cmd, arg] = text.trim().split(/\s+/);
-  const asLogin = arg && !/^\d+$/.test(arg);
+  // An all-digits arg could be an account id OR a login that happens to be
+  // numeric — Anixart doesn't forbid numeric usernames. Guessing "digits ⇒
+  // id" silently bans/unbans the wrong account when it's actually a numeric
+  // login. banAccount/unbanAccount check id and login independently (each
+  // only matches its own exact field), so targeting both when numeric is
+  // unambiguous rather than a guess.
+  const numericId = arg && /^\d+$/.test(arg) ? Number(arg) : undefined;
 
   switch (cmd) {
     case '/stats': {
@@ -103,13 +109,13 @@ async function handleCommand(text: string): Promise<void> {
     }
     case '/ban_user':
       if (arg) {
-        denylist.banAccount(asLogin ? undefined : Number(arg), asLogin ? arg : undefined);
+        denylist.banAccount(numericId, arg);
         await notify(`🚫 Забанен: ${htmlEscape(arg)}`);
       } else await notify('Использование: /ban_user &lt;id|логин&gt;');
       break;
     case '/unban_user':
       if (arg) {
-        denylist.unbanAccount(asLogin ? undefined : Number(arg), asLogin ? arg : undefined);
+        denylist.unbanAccount(numericId, arg);
         await notify(`✅ Разбанен: ${htmlEscape(arg)}`);
       } else await notify('Использование: /unban_user &lt;id|логин&gt;');
       break;
@@ -162,6 +168,16 @@ export function registerTelegram(scope: FastifyInstance): void {
 
     const update = (req.body ?? {}) as any;
     try {
+      // The webhook secret only proves the request came from Telegram's servers —
+      // it says nothing about WHO sent the message. Without this check, anyone who
+      // finds the bot and opens a chat with it could issue admin commands (bans,
+      // session/login dumps). Only the configured owner chat may issue commands —
+      // the same chat TELEGRAM_CHAT_ID already sends notifications to.
+      const senderChatId = String(
+        update.callback_query?.message?.chat?.id ?? update.message?.chat?.id ?? '',
+      );
+      if (!settings.TELEGRAM_CHAT_ID || senderChatId !== settings.TELEGRAM_CHAT_ID) return;
+
       if (update.callback_query) {
         await handleCallback(update.callback_query);
         return;

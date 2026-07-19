@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { settings } from '../config/settings.js';
-import { bucketFor } from './screenshots.js';
 
 /**
  * Personal per-anime diary: a free-text review + optional 1–10 score, one entry
@@ -9,12 +8,22 @@ import { bucketFor } from './screenshots.js';
  * it's private and cross-device.
  */
 
-export { bucketFor };
 
 export interface DiaryEntry {
   text: string;
   rating: number; // 0 = unset, else 1–10
   updatedAt: number;
+  // Название и постер кладём прямо в запись при сохранении. Ленте дневника иначе
+  // пришлось бы тянуть их по каждому id отдельным запросом — на сотне записей
+  // это сотня походов наружу. Скриншоты решают это так же (см. ShotMeta.title).
+  // У записей, сделанных до этого, полей нет — лента переживает их отсутствие.
+  title?: string;
+  image?: string;
+}
+
+/** Запись вместе с id тайтла — в самом хранилище id это ключ, а не поле. */
+export interface DiaryListItem extends DiaryEntry {
+  releaseId: string;
 }
 
 type Bucket = Record<string, DiaryEntry>; // key = releaseId
@@ -45,14 +54,35 @@ export function getDiary(bucket: string, releaseId: string): DiaryEntry | null {
   return load(bucket)[releaseId] ?? null;
 }
 
-export function setDiary(bucket: string, releaseId: string, text: string, rating: number): void {
+export function setDiary(
+  bucket: string,
+  releaseId: string,
+  text: string,
+  rating: number,
+  meta?: { title?: string; image?: string },
+): void {
   const data = load(bucket);
   const cleanText = text.trim().slice(0, 8000);
   const r = Math.min(10, Math.max(0, Math.round(rating || 0)));
   if (!cleanText && !r) {
     delete data[releaseId];
   } else {
-    data[releaseId] = { text: cleanText, rating: r, updatedAt: Date.now() };
+    const prev = data[releaseId];
+    data[releaseId] = {
+      text: cleanText,
+      rating: r,
+      updatedAt: Date.now(),
+      // Если клиент название не прислал, не затираем то, что уже было записано.
+      title: meta?.title?.slice(0, 200) || prev?.title,
+      image: meta?.image?.slice(0, 500) || prev?.image,
+    };
   }
   persist(bucket, data);
+}
+
+/** Все записи пользователя, свежие сверху — для ленты дневника. */
+export function listDiary(bucket: string): DiaryListItem[] {
+  return Object.entries(load(bucket))
+    .map(([releaseId, entry]) => ({ releaseId, ...entry }))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }

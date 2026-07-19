@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { settings } from '../config/settings.js';
-import { bucketFor } from './screenshots.js';
 
 /**
  * Cross-device watch progress. Like the screenshot gallery, a user is addressed
@@ -41,7 +40,6 @@ function write(bucket: string, list: ProgressEntry[]): void {
   writeFileSync(fileFor(bucket), JSON.stringify(list));
 }
 
-export { bucketFor };
 
 export function saveProgress(bucket: string, entry: ProgressEntry): void {
   const b = safeBucket(bucket);

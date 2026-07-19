@@ -15,7 +15,17 @@ const schema = z.object({
   UPSTREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
   GATEWAY_KEY: z.string().optional(),
+  // OAuth-приложение Shikimori — для записи в список пользователя.
+  // Метаданные (findAnime и прочее) читаются без них, поэтому необязательные:
+  // без ключей синхронизация просто выключена, остальное работает как раньше.
+  SHIKIMORI_CLIENT_ID: z.string().optional(),
+  SHIKIMORI_CLIENT_SECRET: z.string().optional(),
+  SHIKIMORI_REDIRECT_URI: z.string().optional(),
   PREMIUM_EXPIRES_AT: z.coerce.number().int().positive().default(4070908800),
+
+  // Separate from GATEWAY_KEY, which ships inside the public frontend bundle
+  // (not a real secret). Owner-only diagnostics stay 404 until this is set.
+  ADMIN_KEY: z.string().optional(),
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),

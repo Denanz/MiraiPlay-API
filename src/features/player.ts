@@ -1,14 +1,16 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { settings, allowedOrigins } from '../config/settings.js';
-import { callUpstream } from '../upstream/client.js';
+import { callUpstream, upstreamJson } from '../upstream/client.js';
 import { isAllowedKodikUrl, resolveKodik } from './kodik.js';
 import { buildPlayerPage } from './player.page.js';
-import { bucketFor, listShots, openShot, removeShot, saveShot, setNote } from '../services/screenshots.js';
+import { listShots, openShot, removeShot, saveShot, setNote } from '../services/screenshots.js';
+import { resolveBucket, resolveUserId } from '../services/identity.js';
+import { getAuth as getShikiAuth } from '../services/shikimori-auth.js';
+import { pushUserRate } from '../services/shikimori-sync.js';
 import { getProgress, listContinue, saveProgress } from '../services/progress.js';
 import { setNotifyToken } from '../services/notify-episodes.js';
 import { findAnime } from '../services/shikimori.js';
 import {
-  bucketFor as ratingBucket,
   setRating,
   deleteRating,
   getRatings,
@@ -47,6 +49,35 @@ function tokenFrom(req: FastifyRequest): string {
   return typeof b.token === 'string' ? b.token : '';
 }
 
+/**
+ * Отправляет оценку/прогресс в список Shikimori. Тайтл там ищется по названиям,
+ * поэтому сначала вытягиваем карточку релиза — id Anixart Shikimori ничего не
+ * говорит. Всё best-effort: не подключён, не нашёлся, упало — молча выходим.
+ */
+async function syncReleaseToShikimori(
+  token: string,
+  releaseId: string,
+  payload: { score?: number; episodes?: number; status?: 'watching' | 'completed' },
+): Promise<void> {
+  try {
+    const userId = await resolveUserId(token);
+    if (!userId || !getShikiAuth(userId)) return;
+    const res = await upstreamJson<{ release?: { title_ru?: string; title_original?: string; title_alt?: string } }>({
+      path: `/release/${releaseId}`,
+      query: { token },
+    });
+    const rel = res.data?.release;
+    if (!rel) return;
+    await pushUserRate(
+      userId,
+      { titleRu: rel.title_ru, titleOrig: rel.title_original, titleAlt: rel.title_alt },
+      payload,
+    );
+  } catch {
+    // Синхронизация — приятное дополнение, а не условие работы плеера.
+  }
+}
+
 export function registerPlayer(scope: FastifyInstance): void {
   // ── HTML player page ──
   scope.get('/player', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -72,7 +103,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     // localStorage history. The page still merges in any newer local value.
     let resumeTime = 0;
     if (token) {
-      const saved = getProgress(bucketFor(token), String(releaseId), String(sourceId), String(position));
+      const saved = getProgress(await resolveBucket(token), String(releaseId), String(sourceId), String(position));
       if (saved && saved.position > 15) resumeTime = saved.position;
     }
 
@@ -137,10 +168,17 @@ export function registerPlayer(scope: FastifyInstance): void {
         path: `/episode/watch/${releaseId}/${sourceId}/${episodePosition}`,
         query: typeof token === 'string' ? { token } : undefined,
       }).catch(() => {});
+      // Тем же моментом двигаем счётчик серий в списке на Shikimori.
+      if (typeof token === 'string' && token) {
+        void syncReleaseToShikimori(token, String(releaseId), {
+          episodes: Number(episodePosition) || 0,
+          status: 'watching',
+        });
+      }
     }
     // Persist fine-grained position for cross-device resume + continue-watching.
     if (typeof token === 'string' && token && typeof time === 'number' && time >= 0) {
-      saveProgress(bucketFor(token), {
+      saveProgress(await resolveBucket(token), {
         releaseId: String(releaseId),
         sourceId: String(sourceId),
         episode: String(episodePosition),
@@ -163,7 +201,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!q.releaseId || !q.sourceId || !q.episode) {
       return reply.code(400).send({ error: 'missing_fields' });
     }
-    const e = getProgress(bucketFor(token), q.releaseId, q.sourceId, q.episode);
+    const e = getProgress(await resolveBucket(token), q.releaseId, q.sourceId, q.episode);
     return reply.send({
       position: e?.position ?? 0,
       duration: e?.duration ?? 0,
@@ -171,11 +209,53 @@ export function registerPlayer(scope: FastifyInstance): void {
     });
   });
 
+  // ── готовый поток для «горячей» смены озвучки ──
+  // Отдаёт то же, что /player готовит для страницы, но в JSON: плеер подменяет
+  // video.src на месте и возвращает таймкод, вместо того чтобы перезагружать
+  // себя целиком (перезагрузка сбрасывала бы воспроизведение). Резолв ссылки
+  // Kodik остаётся на сервере — клиенту незачем знать внутренние адреса, да и
+  // проверка isAllowedKodikUrl не должна зависеть от клиента.
+  scope.get('/player/stream', async (req: FastifyRequest, reply: FastifyReply) => {
+    const q = req.query as Record<string, string>;
+    const { releaseId, sourceId, position } = q;
+    const token = tokenFrom(req);
+    if (!releaseId || !sourceId || !position) {
+      return reply.code(400).send({ error: 'missing_fields' });
+    }
+
+    const res = await upstreamJson<{ episode?: { url?: string; name?: string } }>({
+      path: `/episode/target/${releaseId}/${sourceId}/${position}`,
+      query: token ? { token } : {},
+    });
+    const raw = res.data?.episode?.url || '';
+    // Нумерация серий у разных озвучек не совпадает: у выбранной этой серии
+    // может просто не быть. Это штатный ответ, а не ошибка.
+    if (!raw) return reply.code(404).send({ error: 'episode_unavailable' });
+
+    const url = raw.startsWith('//') ? `https:${raw}` : raw;
+    if (!isAllowedKodikUrl(url)) return reply.code(400).send({ error: 'invalid_url' });
+
+    let playback;
+    try {
+      playback = await resolveKodik(url);
+    } catch {
+      return reply.code(502).send({ error: 'resolve_failed' });
+    }
+
+    const isHls = playback.qualities.some((qq) => qq.url.includes('.m3u8') || qq.url.includes('hls'));
+    return reply.send({
+      qualities: playback.qualities,
+      defaultLabel: playback.defaultLabel,
+      isHls,
+      episodeName: res.data?.episode?.name || '',
+    });
+  });
+
   // ── in-progress episodes across releases (continue watching) ──
   scope.get('/player/continue', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
-    return reply.send({ items: listContinue(bucketFor(token)) });
+    return reply.send({ items: listContinue(await resolveBucket(token)) });
   });
 
   // ── screenshot gallery ──
@@ -192,7 +272,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (bytes.length > 8_000_000) return reply.code(413).send({ error: 'too_large' });
 
     try {
-      const meta = saveShot(bucketFor(token), bytes, match[1] === 'png' ? 'png' : 'jpg', {
+      const meta = saveShot(await resolveBucket(token), bytes, match[1] === 'png' ? 'png' : 'jpg', {
         releaseId: releaseId != null ? String(releaseId) : undefined,
         title: typeof title === 'string' ? title.slice(0, 200) : undefined,
         episode: Number(episode) || undefined,
@@ -207,7 +287,7 @@ export function registerPlayer(scope: FastifyInstance): void {
   scope.get('/player/screenshots', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
-    const bucket = bucketFor(token);
+    const bucket = await resolveBucket(token);
     return reply.send({ bucket, items: listShots(bucket) });
   });
 
@@ -226,7 +306,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ ok: false });
     const { id } = req.params as { id: string };
-    const ok = removeShot(bucketFor(token), id);
+    const ok = removeShot(await resolveBucket(token), id);
     return reply.code(ok ? 200 : 404).send({ ok });
   });
 
@@ -236,7 +316,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ ok: false });
     const { id } = req.params as { id: string };
     const { note } = (req.body ?? {}) as Record<string, unknown>;
-    const ok = setNote(bucketFor(token), id, typeof note === 'string' ? note : '');
+    const ok = setNote(await resolveBucket(token), id, typeof note === 'string' ? note : '');
     return reply.code(ok ? 200 : 404).send({ ok });
   });
 
@@ -248,7 +328,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!releaseId || !sourceId || !episode) return reply.code(400).send({ error: 'missing_fields' });
     const r = Number(rating);
     if (!r || r < 1 || r > 10) return reply.code(400).send({ error: 'rating must be 1–10' });
-    setRating(ratingBucket(token), String(releaseId), String(sourceId), String(episode), r);
+    setRating(await resolveBucket(token), String(releaseId), String(sourceId), String(episode), r);
     return reply.send({ ok: true, rating: r });
   });
 
@@ -257,7 +337,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const q = req.query as Record<string, string>;
     if (!q.releaseId || !q.sourceId || !q.episode) return reply.code(400).send({ error: 'missing_fields' });
-    deleteRating(ratingBucket(token), q.releaseId, q.sourceId, q.episode);
+    deleteRating(await resolveBucket(token), q.releaseId, q.sourceId, q.episode);
     return reply.send({ ok: true });
   });
 
@@ -267,7 +347,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const q = req.query as Record<string, string>;
     if (!q.releaseId || !q.sourceId) return reply.code(400).send({ error: 'missing_fields' });
-    return reply.send({ ratings: getRatings(ratingBucket(token), q.releaseId, q.sourceId) });
+    return reply.send({ ratings: getRatings(await resolveBucket(token), q.releaseId, q.sourceId) });
   });
 
   // Single episode rating (used by the player on load)
@@ -276,7 +356,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const q = req.query as Record<string, string>;
     if (!q.releaseId || !q.sourceId || !q.episode) return reply.code(400).send({ error: 'missing_fields' });
-    const rating = getRating(ratingBucket(token), q.releaseId, q.sourceId, q.episode);
+    const rating = getRating(await resolveBucket(token), q.releaseId, q.sourceId, q.episode);
     return reply.send({ rating });
   });
 
@@ -289,7 +369,11 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!releaseId) return reply.code(400).send({ error: 'missing_fields' });
     const r = Number(rating);
     if (!r || r < 1 || r > 10) return reply.code(400).send({ error: 'rating must be 1–10' });
-    setReleaseRating(ratingBucket(token), String(releaseId), r);
+    setReleaseRating(await resolveBucket(token), String(releaseId), r);
+    // Заодно в список на Shikimori, если аккаунт подключён. Намеренно не ждём:
+    // оценка уже сохранена у нас, и чужой сервис не должен задерживать ответ
+    // или ронять запрос, если он лежит.
+    void syncReleaseToShikimori(token, String(releaseId), { score: r });
     return reply.send({ ok: true, rating: r });
   });
 
@@ -298,7 +382,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const q = req.query as Record<string, string>;
     if (!q.releaseId) return reply.code(400).send({ error: 'missing_fields' });
-    deleteReleaseRating(ratingBucket(token), q.releaseId);
+    deleteReleaseRating(await resolveBucket(token), q.releaseId);
     return reply.send({ ok: true });
   });
 
@@ -307,7 +391,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const q = req.query as Record<string, string>;
     if (!q.releaseId) return reply.code(400).send({ error: 'missing_fields' });
-    const rating = getReleaseRating(ratingBucket(token), q.releaseId);
+    const rating = getReleaseRating(await resolveBucket(token), q.releaseId);
     return reply.send({ rating });
   });
 }

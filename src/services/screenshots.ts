@@ -13,9 +13,12 @@ import { settings } from '../config/settings.js';
 
 /**
  * Per-user screenshot gallery stored on disk. A user is addressed by an opaque
- * "bucket" — an HMAC of their token — never by a client-supplied id, so one user
- * can't enumerate or touch another's gallery (no IDOR). The bucket in a file URL
- * is itself the capability.
+ * "bucket" — never by a client-supplied id, so one user can't enumerate or touch
+ * another's gallery (no IDOR). The bucket in a file URL is itself the capability.
+ *
+ * Сам адрес выдаёт services/identity.ts: он считается от стабильного id аккаунта,
+ * а не от токена (раньше было от токена, из-за чего смена устройства или
+ * перелогин показывали пустую галерею).
  */
 
 export interface ShotMeta {
@@ -31,11 +34,6 @@ export interface ShotMeta {
 
 const ROOT = join(settings.STATE_DIR, 'screenshots');
 const ID_RE = /^[A-Za-z0-9_-]+$/;
-
-export function bucketFor(token: string): string {
-  const secret = settings.GATEWAY_KEY || 'miraihub';
-  return createHmac('sha256', secret).update(token).digest('hex').slice(0, 32);
-}
 
 const safe = (v: string): string => (ID_RE.test(v) ? v : '');
 const bucketDir = (bucket: string) => join(ROOT, bucket);

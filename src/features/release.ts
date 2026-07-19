@@ -2,9 +2,17 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { settings } from '../config/settings.js';
 import { passableHeaders, upstreamJson } from '../upstream/client.js';
 import { absoluteShikiUrl, findAnime, relatedAnime, franchiseChain, type ShikiRelated } from '../services/shikimori.js';
-import { bucketFor, getDiary, setDiary } from '../services/diary.js';
-import { getChatId, registerSubscriber } from '../services/notify-episodes.js';
+import { getDiary, listDiary, setDiary } from '../services/diary.js';
+import { resolveBucket, resolveUserId } from '../services/identity.js';
+import { getAwaitFull, getChatId, registerSubscriber, setAwaitFull } from '../services/notify-episodes.js';
 import { denylist } from '../services/blocklist.js';
+import {
+  authorizeUrl as shikiAuthorizeUrl,
+  connectWithCode as shikiConnect,
+  disconnect as shikiDisconnect,
+  getAuth as getShikiAuth,
+  isConfigured as isShikiConfigured,
+} from '../services/shikimori-auth.js';
 import { sendTo } from '../services/notifier.js';
 
 /**
@@ -133,37 +141,102 @@ export function registerRelease(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const q = req.query as Record<string, string>;
     if (!q.releaseId) return reply.code(400).send({ error: 'missing_fields' });
-    return reply.send({ entry: getDiary(bucketFor(token), String(q.releaseId)) });
+    return reply.send({ entry: getDiary(await resolveBucket(token), String(q.releaseId)) });
+  });
+
+  // Вся лента записей — чтобы дневник можно было перечитывать целиком, а не
+  // только натыкаться на запись, открыв конкретный тайтл.
+  scope.get('/diary/all', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    return reply.send({ entries: listDiary(await resolveBucket(token)) });
   });
 
   scope.post('/diary', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
-    const { releaseId, text, rating } = (req.body ?? {}) as Record<string, unknown>;
+    const { releaseId, text, rating, title, image } = (req.body ?? {}) as Record<string, unknown>;
     if (!releaseId) return reply.code(400).send({ error: 'missing_fields' });
     setDiary(
-      bucketFor(token),
+      await resolveBucket(token),
       String(releaseId),
       typeof text === 'string' ? text : '',
       Number(rating) || 0,
+      {
+        title: typeof title === 'string' ? title : undefined,
+        image: typeof image === 'string' ? image : undefined,
+      },
     );
     return reply.send({ ok: true });
   });
 
   // ── Telegram chat id for new-episode notifications (per user) ──
   // The account id anchors the subscriber so each friend gets episodes from
-  // their own watch lists; we take it from the request, falling back to the
-  // token→account binding learned at sign-in.
-  const userIdOf = (req: FastifyRequest, token: string): number => {
-    const q = req.query as Record<string, unknown>;
-    const b = (req.body ?? {}) as Record<string, unknown>;
-    return Number(q.profileId ?? b.profileId) || denylist.getOwner(token)?.id || 0;
-  };
+  // their own watch lists — never a client-supplied id, which would let any
+  // caller with a non-empty token string read or overwrite another account's
+  // notification chat by guessing/enumerating its numeric id.
+  //
+  // resolveUserId переехал в services/identity.ts: тем же стабильным id теперь
+  // адресуются и пользовательские данные (скриншоты, оценки, прогресс, дневник),
+  // так что логика владения живёт в одном месте. Подробности про привязку
+  // токена и запасной поход в /profile/info — там же.
+
+  // ── Подключение Shikimori (OAuth «out of band») ──
+  scope.get('/shikimori/status', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    if (!isShikiConfigured()) return reply.send({ configured: false, connected: false });
+    const auth = getShikiAuth(await resolveUserId(token));
+    return reply.send({
+      configured: true,
+      connected: Boolean(auth),
+      nickname: auth?.shikiNickname ?? '',
+      authorizeUrl: shikiAuthorizeUrl(),
+    });
+  });
+
+  scope.post('/shikimori/connect', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const { code } = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof code !== 'string' || !code.trim()) {
+      return reply.code(400).send({ error: 'missing_code' });
+    }
+    const nickname = await shikiConnect(await resolveUserId(token), code);
+    if (!nickname) return reply.code(400).send({ error: 'bad_code' });
+    return reply.send({ ok: true, nickname });
+  });
+
+  scope.post('/shikimori/disconnect', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    shikiDisconnect(await resolveUserId(token));
+    return reply.send({ ok: true });
+  });
+
+  // ── «Подожду, пока выйдет целиком» ──
+  scope.get('/notify/await-full', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    return reply.send({ releases: getAwaitFull(await resolveUserId(token)) });
+  });
+
+  scope.post('/notify/await-full', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const { releaseId, on } = (req.body ?? {}) as Record<string, unknown>;
+    if (!releaseId) return reply.code(400).send({ error: 'missing_fields' });
+    const ok = setAwaitFull(await resolveUserId(token), String(releaseId), Boolean(on));
+    // Без привязанного Telegram уведомлять некуда — честно говорим об этом,
+    // а не делаем вид, что подписали.
+    if (!ok) return reply.code(409).send({ error: 'telegram_not_linked' });
+    return reply.send({ ok: true });
+  });
 
   scope.get('/notify/chat', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
-    return reply.send({ chatId: getChatId(userIdOf(req, token)) });
+    return reply.send({ chatId: getChatId(await resolveUserId(token)) });
   });
 
   scope.post('/notify/chat', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -172,7 +245,7 @@ export function registerRelease(scope: FastifyInstance): void {
     const { chatId } = (req.body ?? {}) as Record<string, unknown>;
     const clean = String(chatId ?? '').trim();
     if (!/^-?\d{3,20}$/.test(clean)) return reply.code(400).send({ ok: false, error: 'bad_chat_id' });
-    registerSubscriber(userIdOf(req, token), token, clean);
+    registerSubscriber(await resolveUserId(token), token, clean);
     // Confirm the bot can actually reach this chat (needs a prior /start).
     const delivered = await sendTo(
       clean,

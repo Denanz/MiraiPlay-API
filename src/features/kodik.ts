@@ -87,7 +87,14 @@ function dissect(url: string): LinkParts {
   if (!groups?.host || !groups.kind || !groups.id || !groups.hash) {
     throw new Error('malformed kodik link');
   }
-  return { host: groups.host, kind: groups.kind, id: groups.id, hash: groups.hash };
+  // The fetch target must be the SAME hostname that was actually validated above —
+  // never the regex-captured group. LINK_SHAPE is unanchored, so it can match a
+  // //host/kind/id/hash/qualityp-shaped substring smuggled anywhere in the URL
+  // (e.g. a query param) while the real, parsed hostname (what the allowlist check
+  // above inspected) points somewhere else — an SSRF if the two are allowed to
+  // diverge.
+  const host = new URL(normalized).hostname;
+  return { host, kind: groups.kind, id: groups.id, hash: groups.hash };
 }
 
 /** The info endpoint path is hidden in a JS chunk as an atob() literal. */

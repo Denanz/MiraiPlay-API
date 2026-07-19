@@ -82,6 +82,11 @@ export function registerMedia(scope: FastifyInstance): void {
         .header('content-type', contentType)
         .header('cache-control', 'public, max-age=604800, immutable')
         .header('cross-origin-resource-policy', 'cross-origin')
+        // Без этого заголовка картинку нельзя загрузить с crossOrigin="anonymous",
+        // а значит и прочитать из canvas: браузер откажет ещё на загрузке.
+        // Нужно для подкраски интерфейса под цвет постера (lib/posterTheme.ts).
+        // Отдаём '*': картинки публичные, куки и авторизация тут не участвуют.
+        .header('access-control-allow-origin', '*')
         .header('vary', 'Accept')
         .send(bytes);
 

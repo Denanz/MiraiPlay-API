@@ -12,6 +12,13 @@ export function trimIp(ip: string | null | undefined): string {
   return (ip ?? '').replace('::ffff:', '').trim();
 }
 
+// RFC1918 private space for 172.x is only 172.16.0.0–172.31.255.255 (a /12) — the
+// old `startsWith('172.')` check matched the entire /8, wrongly treating huge
+// public ranges (e.g. Cloudflare 172.64.0.0/13, Google 172.217.0.0/16 and
+// 172.253.0.0/16) as "local", so banIp() silently refused to ban abusive clients
+// sitting in any of those ranges.
+const PRIVATE_172_RE = /^172\.(1[6-9]|2\d|3[01])\./;
+
 export function isLocalIp(ip: string): boolean {
   const v = trimIp(ip);
   if (!v || v === 'unknown' || v === 'localhost') return true;
@@ -20,7 +27,7 @@ export function isLocalIp(ip: string): boolean {
     v === '::1' ||
     v.startsWith('10.') ||
     v.startsWith('192.168.') ||
-    v.startsWith('172.') ||
+    PRIVATE_172_RE.test(v) ||
     v.startsWith('169.254.')
   );
 }
