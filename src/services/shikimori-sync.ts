@@ -69,3 +69,80 @@ export async function pushUserRate(
     return false;
   }
 }
+
+export interface ShikiProfileDigest {
+  nickname: string;
+  url: string;
+  avatar: string;
+  lastOnline: string;
+  /** Строки вида «муж.», «на сайте с 2010 г.» — Shikimori отдаёт их с разметкой. */
+  about: string[];
+  /** Сколько тайтлов в каждом статусе списка: смотрю, просмотрено, в планах… */
+  statuses: Array<{ name: string; size: number }>;
+  /** Распределение оценок: сколько раз поставлена каждая. */
+  scores: Array<{ score: number; count: number }>;
+  /** По типам: сериал, фильм, OVA… */
+  types: Array<{ name: string; count: number }>;
+}
+
+const STATUS_RU: Record<string, string> = {
+  planned: 'В планах',
+  watching: 'Смотрю',
+  rewatching: 'Пересматриваю',
+  completed: 'Просмотрено',
+  on_hold: 'Отложено',
+  dropped: 'Брошено',
+};
+
+/** Убираем разметку, которой Shikimori сдабривает common_info. */
+function stripTags(v: string): string {
+  return String(v).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Сводка профиля Shikimori для страницы профиля.
+ *
+ * Сам профиль публичный и токена не требует — токен нужен только чтобы понять,
+ * ЧЕЙ профиль показывать, поэтому без подключения возвращаем null.
+ */
+export async function fetchProfileDigest(userId: number): Promise<ShikiProfileDigest | null> {
+  const auth = await validAccessToken(userId);
+  if (!auth?.shikiUserId) return null;
+  try {
+    const res = await fetch(`${SHIKI_API_BASE}/api/users/${auth.shikiUserId}`, {
+      headers: { 'user-agent': SHIKI_UA },
+    });
+    if (!res.ok) return null;
+    const u = (await res.json()) as Record<string, any>;
+    const st = u.stats ?? {};
+    const animeStatuses: any[] = st.statuses?.anime ?? [];
+    const animeScores: any[] = st.scores?.anime ?? [];
+    const animeTypes: any[] = st.types?.anime ?? [];
+
+    return {
+      nickname: String(u.nickname ?? ''),
+      url: String(u.url ?? ''),
+      avatar: String(u.image?.x64 ?? u.avatar ?? ''),
+      lastOnline: String(u.last_online ?? ''),
+      about: (u.common_info ?? []).map(stripTags).filter(Boolean),
+      statuses: animeStatuses
+        .filter((s) => Number(s.size) > 0)
+        // Ключ берём из name, а не из grouped_id: у «смотрю» grouped_id равен
+        // 'watching,rewatching' (составное), и поиск по нему промахивается,
+        // оставляя английскую подпись среди русских.
+        .map((s) => ({
+          name: STATUS_RU[String(s.name)] ?? STATUS_RU[String(s.grouped_id)] ?? String(s.name),
+          size: Number(s.size),
+        })),
+      scores: animeScores
+        .map((s) => ({ score: Number(s.name), count: Number(s.value) }))
+        .filter((s) => s.count > 0)
+        .sort((a, b) => b.score - a.score),
+      types: animeTypes
+        .map((t) => ({ name: String(t.name), count: Number(t.value) }))
+        .filter((t) => t.count > 0),
+    };
+  } catch {
+    return null;
+  }
+}

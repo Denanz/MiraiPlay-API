@@ -13,6 +13,7 @@ import {
   getAuth as getShikiAuth,
   isConfigured as isShikiConfigured,
 } from '../services/shikimori-auth.js';
+import { fetchProfileDigest } from '../services/shikimori-sync.js';
 import { sendTo } from '../services/notifier.js';
 
 /**
@@ -205,6 +206,15 @@ export function registerRelease(scope: FastifyInstance): void {
     const nickname = await shikiConnect(await resolveUserId(token), code);
     if (!nickname) return reply.code(400).send({ error: 'bad_code' });
     return reply.send({ ok: true, nickname });
+  });
+
+  // Сводка профиля со стороны Shikimori — для страницы профиля.
+  scope.get('/shikimori/profile', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const digest = await fetchProfileDigest(await resolveUserId(token));
+    if (!digest) return reply.code(404).send({ error: 'not_connected' });
+    return reply.send({ profile: digest });
   });
 
   scope.post('/shikimori/disconnect', async (req: FastifyRequest, reply: FastifyReply) => {
