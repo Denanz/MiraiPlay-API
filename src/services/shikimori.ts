@@ -128,11 +128,17 @@ async function searchOne(term: string): Promise<ShikiAnime | null> {
             body: JSON.stringify({ query: SEARCH_QUERY, variables: { search: term } }),
             signal,
           });
+          // Отказ сети или лимита — это НЕ «такого аниме нет». Бросаем, чтобы
+          // wrap не закешировал пустой результат: иначе один всплеск «Retry
+          // later» на часы превращает существующие тайтлы в ненайденные
+          // (ровно это и сорвало массовый перенос).
+          if (!res.ok) throw new Error(`shikimori search ${res.status}`);
           return (await res.json()) as { data?: { animes?: ShikiAnime[] } };
         });
+        // А вот пустой ответ при HTTP 200 — честное «не нашлось», его кешируем.
         return json.data?.animes?.[0] ?? null;
-      } catch {
-        return null;
+      } catch (e) {
+        throw e instanceof Error ? e : new Error('shikimori search failed');
       }
     },
     (hit) => (hit ? 12 * HOUR : 1 * HOUR),
@@ -147,8 +153,12 @@ export async function findAnime(titles: {
 }): Promise<ShikiAnime | null> {
   for (const term of [titles.ru, titles.orig, titles.alt]) {
     if (!term) continue;
-    const hit = await searchOne(term);
-    if (hit) return hit;
+    try {
+      const hit = await searchOne(term);
+      if (hit) return hit;
+    } catch {
+      // Этот вариант названия не отработал — пробуем следующий, а не сдаёмся.
+    }
   }
   return null;
 }

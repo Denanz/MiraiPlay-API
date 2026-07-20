@@ -14,6 +14,13 @@ import {
   isConfigured as isShikiConfigured,
 } from '../services/shikimori-auth.js';
 import { fetchProfileDigest } from '../services/shikimori-sync.js';
+import {
+  exportShikiRates,
+  getJob,
+  startMigration,
+  type MiraiItem,
+} from '../services/shikimori-migrate.js';
+import { getReleaseRating } from '../services/ratings.js';
 import { sendTo } from '../services/notifier.js';
 
 /**
@@ -103,6 +110,55 @@ async function enrich(release: any): Promise<void> {
   ].filter(Boolean);
 
   release.note = parts.join('<br><br>');
+}
+
+/** Списки профиля в терминах статусов Shikimori. */
+const LIST_TO_STATUS: Record<number, MiraiItem['status']> = {
+  1: 'watching',
+  2: 'planned',
+  3: 'completed',
+  4: 'on_hold',
+  5: 'dropped',
+};
+
+/**
+ * Собирает всё, что MiraiHub знает о тайтлах пользователя: список, число
+ * просмотренных серий и personal-оценку. У просмотренного число серий берём из
+ * общего количества — раз тайтл закрыт, значит просмотрен целиком; у остальных
+ * из последней открытой серии, если она известна.
+ */
+async function collectMiraiItems(token: string, bucket: string): Promise<MiraiItem[]> {
+  const out: MiraiItem[] = [];
+  const seen = new Set<string>();
+  for (const listId of [1, 2, 3, 4, 5]) {
+    for (let page = 0; page < 40; page++) {
+      const res = await upstreamJson<{ content?: any[] }>({
+        path: `/profile/list/all/${listId}/${page}`,
+        query: { token },
+      }).catch(() => null);
+      const items = res?.data?.content ?? [];
+      if (items.length === 0) break;
+      for (const raw of items) {
+        const r = raw.release ?? raw;
+        const id = r?.id != null ? String(r.id) : '';
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const total = Number(r.episodes_total) || 0;
+        const lastView = Number(r.last_view_episode?.position) || 0;
+        out.push({
+          releaseId: id,
+          titleRu: r.title_ru,
+          titleOrig: r.title_original,
+          titleAlt: r.title_alt,
+          status: LIST_TO_STATUS[listId],
+          episodes: listId === 3 ? total : lastView,
+          score: getReleaseRating(bucket, id) ?? 0,
+        });
+      }
+      if (items.length < 20) break;
+    }
+  }
+  return out;
 }
 
 export function registerRelease(scope: FastifyInstance): void {
@@ -215,6 +271,40 @@ export function registerRelease(scope: FastifyInstance): void {
     const digest = await fetchProfileDigest(await resolveUserId(token));
     if (!digest) return reply.code(404).send({ error: 'not_connected' });
     return reply.send({ profile: digest });
+  });
+
+  // Выгрузка списка с Shikimori — бэкап перед любым переносом.
+  scope.get('/shikimori/backup', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const rates = await exportShikiRates(await resolveUserId(token));
+    if (!rates) return reply.code(404).send({ error: 'not_connected' });
+    return reply
+      .header('content-disposition', 'attachment; filename="shikimori-backup.json"')
+      .send({ exportedAt: new Date().toISOString(), count: rates.length, rates });
+  });
+
+  // Перенос MiraiHub → Shikimori. dryRun проходит весь путь, включая
+  // сопоставление названий, но ничего не пишет.
+  scope.post('/shikimori/migrate', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const userId = await resolveUserId(token);
+    if (!userId) return reply.code(401).send({ error: 'auth_required' });
+    const { dryRun } = (req.body ?? {}) as Record<string, unknown>;
+
+    const bucket = await resolveBucket(token);
+    const items = await collectMiraiItems(token, bucket);
+    const started = startMigration(userId, items, Boolean(dryRun));
+    if (!started) return reply.code(409).send({ error: 'already_running' });
+    return reply.send({ started: true, total: items.length, dryRun: Boolean(dryRun) });
+  });
+
+  // Состояние фонового прогона — клиент опрашивает его, пока идёт перенос.
+  scope.get('/shikimori/migrate/status', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    return reply.send({ job: getJob(await resolveUserId(token)) });
   });
 
   scope.post('/shikimori/disconnect', async (req: FastifyRequest, reply: FastifyReply) => {
