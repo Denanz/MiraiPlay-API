@@ -1,5 +1,6 @@
 import { findAnime } from './shikimori.js';
 import { SHIKI_API_BASE, SHIKI_UA, validAccessToken } from './shikimori-auth.js';
+import { flush, rememberItem } from './shikimori-state.js';
 
 /**
  * Перенос списков между MiraiHub и Shikimori.
@@ -116,6 +117,18 @@ export async function migrateToShikimori(
       continue;
     }
     report.matched++;
+    // Запоминаем пару даже при холостом прогоне: сопоставление состоялось, а
+    // именно оно дорогое. Регулярная сверка потом работает по этой карте и
+    // ничего не ищет заново.
+    rememberItem(userId, {
+      releaseId: it.releaseId,
+      shikiId: Number(anime.id),
+      status: it.status ?? 'planned',
+      episodes: it.episodes ?? 0,
+      score: it.score ?? 0,
+      // 0 = ещё не сверялись; первый цикл согласует стороны по правилам.
+      syncedAt: 0,
+    });
     if (opts.dryRun) continue;
 
     const rate: Record<string, unknown> = {
@@ -145,6 +158,7 @@ export async function migrateToShikimori(
     await sleep(THROTTLE_MS);
   }
 
+  flush();
   return report;
 }
 

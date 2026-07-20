@@ -2,6 +2,7 @@ import { upstreamJson } from '../upstream/client.js';
 import { setReleaseRating } from './ratings.js';
 import { SHIKI_API_BASE, SHIKI_UA, validAccessToken } from './shikimori-auth.js';
 import { exportShikiRates, type ShikiRate } from './shikimori-migrate.js';
+import { flush, rememberItem } from './shikimori-state.js';
 
 /**
  * Импорт Shikimori → MiraiHub.
@@ -164,6 +165,15 @@ export async function importFromShikimori(
     cand.releaseTitle = found.title;
     cand.releaseOriginal = found.original;
     report.matched++;
+    rememberItem(userId, {
+      releaseId: String(found.id),
+      shikiId: rate.target_id,
+      status: rate.status,
+      episodes: Number(rate.episodes) || 0,
+      score: cand.score,
+      // 0 = ещё не сверялись; первый цикл согласует стороны по правилам.
+      syncedAt: 0,
+    });
     if (opts.dryRun) continue;
 
     const listId = STATUS_TO_LIST[rate.status];
@@ -180,6 +190,7 @@ export async function importFromShikimori(
     await sleep(THROTTLE_MS);
   }
 
+  flush();
   return report;
 }
 

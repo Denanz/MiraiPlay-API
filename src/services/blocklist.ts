@@ -89,6 +89,16 @@ class Denylist {
   }
 
   /** Resolve the account a token belongs to (set at sign-in). */
+  /** Все известные пары «токен → аккаунт» — для фоновых задач, которым нужно
+   *  обойти пользователей, а не отвечать на конкретный запрос. */
+  knownTokens(): Array<{ userId: number; token: string }> {
+    const out: Array<{ userId: number; token: string }> = [];
+    for (const [token, owner] of this.owners) {
+      if (owner?.id) out.push({ userId: owner.id, token });
+    }
+    return out;
+  }
+
   getOwner(token: string): Owner | undefined {
     return token ? this.owners.get(token) : undefined;
   }

@@ -21,6 +21,7 @@ import {
   type MiraiItem,
 } from '../services/shikimori-migrate.js';
 import { getImportJob, startImport } from '../services/shikimori-import.js';
+import { runCycle } from '../services/shikimori-cycle.js';
 import { getReleaseRating } from '../services/ratings.js';
 import { sendTo } from '../services/notifier.js';
 
@@ -313,6 +314,17 @@ export function registerRelease(scope: FastifyInstance): void {
     const started = startImport(userId, token, bucket, Boolean(dryRun));
     if (!started) return reply.code(409).send({ error: 'already_running' });
     return reply.send({ started: true, dryRun: Boolean(dryRun) });
+  });
+
+  // Ручной запуск сверки — чтобы не ждать очередного цикла.
+  scope.post('/shikimori/sync', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const userId = await resolveUserId(token);
+    if (!userId) return reply.code(401).send({ error: 'auth_required' });
+    const report = await runCycle(userId, token);
+    if (!report) return reply.code(404).send({ error: 'not_connected' });
+    return reply.send({ report });
   });
 
   scope.get('/shikimori/import/status', async (req: FastifyRequest, reply: FastifyReply) => {
