@@ -18,6 +18,7 @@ import {
   setReleaseRating,
   getReleaseRating,
   deleteReleaseRating,
+  getAllReleaseRatings,
 } from '../services/ratings.js';
 
 async function resolveMalId(titles: { ru?: string; orig?: string }): Promise<number | null> {
@@ -207,6 +208,13 @@ export function registerPlayer(scope: FastifyInstance): void {
       duration: e?.duration ?? 0,
       updatedAt: e?.updatedAt ?? 0,
     });
+  });
+
+  // Все личные оценки одним запросом — для плиток в каталоге и на главной.
+  scope.get('/player/rating/all', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenFrom(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    return reply.send({ ratings: getAllReleaseRatings(await resolveBucket(token)) });
   });
 
   // ── готовый поток для «горячей» смены озвучки ──

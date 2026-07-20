@@ -89,3 +89,20 @@ export function getReleaseRating(bucket: string, releaseId: string): number | nu
 export function deleteReleaseRating(bucket: string, releaseId: string): void {
   deleteRating(bucket, releaseId, REL, REL);
 }
+
+/**
+ * Все личные оценки тайтлов разом: releaseId → 1–10.
+ *
+ * Нужна карточкам в каталоге и на главной — иначе за оценкой пришлось бы
+ * ходить отдельным запросом на каждую плитку. Ключи хранятся как
+ * "releaseId:_:_" (см. REL), поэтому эпизодные записи отсеиваем.
+ */
+export function getAllReleaseRatings(bucket: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(load(bucket))) {
+    const parts = key.split(':');
+    if (parts.length !== 3 || parts[1] !== REL || parts[2] !== REL) continue;
+    if (entry?.rating > 0) out[parts[0]] = entry.rating;
+  }
+  return out;
+}

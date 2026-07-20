@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { settings } from '../config/settings.js';
 import { passableHeaders, upstreamJson } from '../upstream/client.js';
-import { absoluteShikiUrl, findAnime, relatedAnime, franchiseChain, type ShikiRelated } from '../services/shikimori.js';
+import { absoluteShikiUrl, findAnime, relatedAnime, franchiseChain, scoresForTitles, type ShikiRelated } from '../services/shikimori.js';
 import { getDiary, listDiary, setDiary } from '../services/diary.js';
 import { resolveBucket, resolveUserId } from '../services/identity.js';
 import { getAwaitFull, getChatId, registerSubscriber, setAwaitFull } from '../services/notify-episodes.js';
@@ -185,6 +185,17 @@ export function registerRelease(scope: FastifyInstance): void {
 
     reply.header('content-type', 'application/json; charset=utf-8');
     return reply.send(JSON.stringify(data));
+  });
+
+  // Оценки Shikimori для пачки тайтлов — карточкам каталога и главной.
+  // Токен не нужен: это публичные оценки, а не данные аккаунта.
+  scope.post('/shikimori/scores', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { titles } = (req.body ?? {}) as Record<string, unknown>;
+    if (!Array.isArray(titles) || titles.length === 0) {
+      return reply.send({ scores: {} });
+    }
+    const list = titles.filter((t): t is string => typeof t === 'string' && !!t).slice(0, 60);
+    return reply.send({ scores: await scoresForTitles(list) });
   });
 
   // ── Personal per-anime diary (review text + score) ──

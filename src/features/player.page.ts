@@ -755,6 +755,13 @@ export function buildPlayerPage(data: PlayerPageData): string {
             </button>
             <div class="quality-dropdown" id="speed-dropdown"></div>
           </div>
+          <div class="quality-wrap" id="dub-wrap" style="display:none">
+            <button class="btn quality-btn" id="dub-btn" type="button" title="Озвучка">
+              <span id="dub-label-text">Озвучка</span>
+              <svg viewBox="0 0 24 24" style="width:12px;height:12px;margin-left:2px"><path d="M7 10l5 5 5-5z"/></svg>
+            </button>
+            <div class="quality-dropdown" id="dub-dropdown"></div>
+          </div>
           <div class="quality-wrap" id="quality-wrap" style="display:none">
             <button class="btn quality-btn" id="quality-btn" type="button">
               <span id="quality-label-text">Авто</span>
@@ -972,11 +979,28 @@ export function buildPlayerPage(data: PlayerPageData): string {
       // возвращать таймкод (тот же путь, что и у смены качества). Перезагружать
       // страницу нельзя: родитель пересоздал бы iframe и сбросил воспроизведение.
       const mDubH=document.getElementById("m-dub-h"),mDubList=document.getElementById("m-dub-list"),
-            mdDubH=document.getElementById("md-dub-h"),mdDubList=document.getElementById("md-dub-list");
+            mdDubH=document.getElementById("md-dub-h"),mdDubList=document.getElementById("md-dub-list"),
+            dubWrap=document.getElementById("dub-wrap"),dubBtn=document.getElementById("dub-btn"),
+            dubDropdown=document.getElementById("dub-dropdown"),dubLabel=document.getElementById("dub-label-text");
+      let dubOpen=false;
       let dubsLoaded=false,dubBusy=false,dubTypes=[],activeSourceId=String(CONFIG.sourceId||"");
       function dubUrl(path){return "/api/v1"+path+(CONFIG.token?((path.indexOf("?")<0?"?":"&")+"token="+encodeURIComponent(CONFIG.token)):"");}
       function renderDubs(){
         if(dubTypes.length<2)return; // переключать нечего
+        // Десктопная «таблетка»: своя кнопка с выпадающим списком, рядом с качеством.
+        if(dubWrap&&dubDropdown){
+          dubWrap.style.display="";
+          dubDropdown.innerHTML="";
+          const cur=dubTypes.find(t=>String(t.sourceId)===activeSourceId);
+          if(cur&&dubLabel)dubLabel.textContent=cur.name;
+          for(const t of dubTypes){
+            const btn=document.createElement("button");
+            btn.className="quality-option"+(String(t.sourceId)===activeSourceId?" active":"");
+            btn.textContent=t.name+(t.episodes_count?" · "+t.episodes_count+" сер.":"");
+            btn.onclick=()=>{closeDub();switchDub(t);};
+            dubDropdown.appendChild(btn);
+          }
+        }
         for(const [h,list] of [[mDubH,mDubList],[mdDubH,mdDubList]]){
           if(!h||!list)continue;
           h.style.display="";list.innerHTML="";
@@ -1009,6 +1033,17 @@ export function buildPlayerPage(data: PlayerPageData): string {
           dubTypes=withSources.filter(Boolean);
           renderDubs();
         }catch{/* список озвучек не критичен — молча остаёмся на текущей */}
+      }
+      function closeDub(){dubOpen=false;if(dubDropdown)dubDropdown.classList.remove("open");}
+      if(dubBtn){
+        dubBtn.addEventListener("click",e=>{
+          e.stopPropagation();
+          // Список тянем при первом раскрытии, а не на каждой загрузке плеера.
+          loadDubs();
+          dubOpen=!dubOpen;
+          dubDropdown.classList.toggle("open",dubOpen);
+          if(dubOpen){closeQuality();if(hideTimer)clearTimeout(hideTimer);}else showOverlay();
+        });
       }
       async function switchDub(t){
         if(dubBusy||String(t.sourceId)===activeSourceId)return;

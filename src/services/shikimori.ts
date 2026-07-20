@@ -28,6 +28,11 @@ const relatedCache = new TtlCache<ShikiRelated[]>({
   dir: join(cacheRoot, 'related'),
   maxMemory: 2000,
 });
+const scoreCache = new TtlCache<number>({
+  ttlMs: 12 * HOUR,
+  dir: join(cacheRoot, 'score'),
+  maxMemory: 5000,
+});
 const franchiseCache = new TtlCache<ShikiFranchiseNode[]>({
   ttlMs: 12 * HOUR,
   dir: join(cacheRoot, 'franchise'),
@@ -237,4 +242,59 @@ export async function franchiseChain(animeId: string): Promise<ShikiFranchiseNod
     },
     (list) => (list.length ? 12 * HOUR : 1 * HOUR),
   );
+}
+
+/**
+ * Оценки Shikimori для пачки тайтлов — одним запросом.
+ *
+ * Карточек на экране десятки, и отдельный поиск на каждую был бы шквалом
+ * запросов. GraphQL позволяет назвать несколько поисков алиасами внутри одного
+ * запроса, поэтому вся сетка обходится единственным обращением.
+ *
+ * Ищем по ОРИГИНАЛЬНОМУ названию: русские переводы у сервисов расходятся
+ * («Golden Kamuy» — «Золотое божество»), и по ним половина не находится.
+ */
+export async function scoresForTitles(titles: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const missing: string[] = [];
+
+  for (const t of titles) {
+    if (!t) continue;
+    const hit = await scoreCache.get(`sc:${t.toLowerCase()}`);
+    if (hit !== undefined) {
+      if (hit > 0) out[t] = hit;
+    } else if (!missing.includes(t)) {
+      missing.push(t);
+    }
+  }
+  if (missing.length === 0) return out;
+
+  // Больше тридцати алиасов за раз делают запрос слишком тяжёлым.
+  for (let i = 0; i < missing.length; i += 30) {
+    const chunk = missing.slice(i, i + 30);
+    const parts = chunk.map(
+      (t, idx) => `a${idx}: animes(search: ${JSON.stringify(t)}, limit: 1) { name score }`,
+    );
+    try {
+      const json = await withTimeout(async (signal) => {
+        const res = await fetch(GRAPHQL_ENDPOINT, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'user-agent': CLIENT_UA },
+          body: JSON.stringify({ query: `{ ${parts.join(' ')} }` }),
+          signal,
+        });
+        if (!res.ok) throw new Error(`shikimori scores ${res.status}`);
+        return (await res.json()) as { data?: Record<string, Array<{ score?: number }>> };
+      });
+      chunk.forEach((t, idx) => {
+        const score = Number(json.data?.[`a${idx}`]?.[0]?.score) || 0;
+        // Кешируем и нули: «оценки нет» — тоже ответ, и переспрашивать незачем.
+        void scoreCache.set(`sc:${t.toLowerCase()}`, score, 12 * HOUR);
+        if (score > 0) out[t] = score;
+      });
+    } catch {
+      // Пачка не вышла — эти тайтлы просто останутся без оценки Shikimori.
+    }
+  }
+  return out;
 }
