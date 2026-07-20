@@ -261,9 +261,11 @@ export function registerRelease(scope: FastifyInstance): void {
     if (typeof code !== 'string' || !code.trim()) {
       return reply.code(400).send({ error: 'missing_code' });
     }
-    const nickname = await shikiConnect(await resolveUserId(token), code);
-    if (!nickname) return reply.code(400).send({ error: 'bad_code' });
-    return reply.send({ ok: true, nickname });
+    const res = await shikiConnect(await resolveUserId(token), code);
+    // Отдаём причину наружу: без неё пользователь видит «не подошёл» и не знает,
+    // получить новый код, поправить опечатку или дело вообще не в нём.
+    if (!res.nickname) return reply.code(400).send({ error: 'bad_code', detail: res.error });
+    return reply.send({ ok: true, nickname: res.nickname });
   });
 
   // Сводка профиля со стороны Shikimori — для страницы профиля.

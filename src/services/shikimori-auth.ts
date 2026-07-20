@@ -109,17 +109,35 @@ async function whoami(accessToken: string): Promise<{ id: number; nickname: stri
   }
 }
 
-/** Обменивает код, показанный Shikimori, на токены. Возвращает ник или null. */
-export async function connectWithCode(userId: number, code: string): Promise<string | null> {
-  if (!isConfigured() || !userId || !code) return null;
+export interface ConnectResult {
+  nickname?: string;
+  /** Причина отказа, как её назвал Shikimori — без неё диагностировать нечего. */
+  error?: string;
+}
+
+/**
+ * Обменивает код, показанный Shikimori, на токены.
+ *
+ * Возвращает именно причину отказа, а не просто null: код одноразовый и живёт
+ * считаные минуты, поэтому «не подошёл» бывает и из-за повторного использования,
+ * и из-за опечатки, и из-за расхождения redirect_uri — а лечится это по-разному.
+ */
+export async function connectWithCode(userId: number, code: string): Promise<ConnectResult> {
+  if (!isConfigured()) return { error: 'приложение Shikimori не настроено на сервере' };
+  if (!userId) return { error: 'не удалось определить владельца токена' };
+  if (!code) return { error: 'пустой код' };
   const t = await tokenRequest({
     grant_type: 'authorization_code',
     code: code.trim(),
     redirect_uri: settings.SHIKIMORI_REDIRECT_URI || OOB,
   });
-  if (!t?.access_token || !t.refresh_token) return null;
+  if (!t?.access_token || !t.refresh_token) {
+    const detail = [t?.error, (t as Record<string, unknown> | null)?.error_description]
+      .filter(Boolean).join(': ');
+    return { error: detail || 'Shikimori не выдал токен' };
+  }
   const me = await whoami(t.access_token);
-  if (!me) return null;
+  if (!me) return { error: 'токен получен, но профиль Shikimori не отвечает' };
   store[String(userId)] = {
     accessToken: t.access_token,
     refreshToken: t.refresh_token,
@@ -129,7 +147,7 @@ export async function connectWithCode(userId: number, code: string): Promise<str
     shikiNickname: me.nickname,
   };
   persist();
-  return me.nickname || String(me.id);
+  return { nickname: me.nickname || String(me.id) };
 }
 
 /**
