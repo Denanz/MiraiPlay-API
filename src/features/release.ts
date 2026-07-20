@@ -20,6 +20,7 @@ import {
   startMigration,
   type MiraiItem,
 } from '../services/shikimori-migrate.js';
+import { getImportJob, startImport } from '../services/shikimori-import.js';
 import { getReleaseRating } from '../services/ratings.js';
 import { sendTo } from '../services/notifier.js';
 
@@ -298,6 +299,26 @@ export function registerRelease(scope: FastifyInstance): void {
     const started = startMigration(userId, items, Boolean(dryRun));
     if (!started) return reply.code(409).send({ error: 'already_running' });
     return reply.send({ started: true, total: items.length, dryRun: Boolean(dryRun) });
+  });
+
+  // Импорт Shikimori → MiraiHub. dryRun обязателен как первый шаг: сопоставление
+  // по названиям может промахнуться, и вслепую писать в списки нельзя.
+  scope.post('/shikimori/import', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    const userId = await resolveUserId(token);
+    if (!userId) return reply.code(401).send({ error: 'auth_required' });
+    const { dryRun } = (req.body ?? {}) as Record<string, unknown>;
+    const bucket = await resolveBucket(token);
+    const started = startImport(userId, token, bucket, Boolean(dryRun));
+    if (!started) return reply.code(409).send({ error: 'already_running' });
+    return reply.send({ started: true, dryRun: Boolean(dryRun) });
+  });
+
+  scope.get('/shikimori/import/status', async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = tokenOf(req);
+    if (!token) return reply.code(401).send({ error: 'auth_required' });
+    return reply.send({ job: getImportJob(await resolveUserId(token)) });
   });
 
   // Состояние фонового прогона — клиент опрашивает его, пока идёт перенос.
