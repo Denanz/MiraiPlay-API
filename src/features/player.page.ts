@@ -1046,13 +1046,13 @@ export function buildPlayerPage(data: PlayerPageData): string {
       //    anything if design isn't modern; the elements still exist in the DOM
       //    either way since only CSS decides which skin paints). ──
       // Touch devices always get the old mobile skin (.m-controls) regardless of the
-      // Modern/Legacy design setting. Раньше здесь стояло "&& !isTouch": на телефоне
-      // Modern оказался неуправляемым, и скин отключили целиком. Настоящая причина
-      // была ниже — блок "Mobile UI wiring" навешивал Legacy-обвязку независимо от
-      // MODERN, из-за чего на тач-устройстве работали ДВА слоя управления сразу и
-      // их обработчики касаний конфликтовали. Теперь слои взаимоисключающие
-      // (см. isMobile), и ограничение снято: Modern доступен и на тач.
-      const MODERN = CONFIG.design === "modern";
+      // Modern-скин плеера — только на десктопе. На телефоне он остаётся Legacy
+      // по решению владельца: «таблетка» и плавающий островок Modern на узком
+      // экране выглядят хуже, чем выделенный мобильный интерфейс .m-controls.
+      // Это НЕ прежний баг с двумя слоями управления — тот исправлен ниже
+      // (isMobile учитывает MODERN, и обвязки больше не навешиваются обе сразу).
+      // Остальной Modern на телефоне не затронут: речь только про плеер.
+      const MODERN = CONFIG.design === "modern" && !isTouch;
       document.body.classList.toggle("modern", MODERN);
       document.body.classList.add(isTouch ? "is-touch" : "is-desktop");
       const mdTrack=document.getElementById("md-track"),mdPlayed=document.getElementById("md-played"),mdBuf=document.getElementById("md-buf"),mdThumb=document.getElementById("md-thumb"),mdMarker=document.getElementById("md-marker"),mdZoneOp=document.getElementById("md-zone-op"),mdZoneEd=document.getElementById("md-zone-ed"),mdTimeCur=document.getElementById("md-time-cur"),mdTimeDur=document.getElementById("md-time-dur"),mdIconPlay=document.getElementById("md-icon-play"),mdIconPause=document.getElementById("md-icon-pause"),mdIconPlay2=document.getElementById("md-icon-play2"),mdIconPause2=document.getElementById("md-icon-pause2"),mdCenterPlay=document.getElementById("md-center-play"),mdPlay=document.getElementById("md-play"),mdBack10=document.getElementById("md-back10"),mdFwd10=document.getElementById("md-fwd10"),mdVolBtn=document.getElementById("md-volbtn"),mdVolume=document.getElementById("md-volume"),mdVolOn=document.getElementById("md-vol-on"),mdVolOff=document.getElementById("md-vol-off"),mdFsBtn=document.getElementById("md-fs"),mdFsExp=document.getElementById("md-fs-exp"),mdFsShr=document.getElementById("md-fs-shr"),mdSkip=document.getElementById("md-skip"),mdSkip85=document.getElementById("md-skip85"),mdShell=document.getElementById("md-shell"),mdShot=document.getElementById("md-shot"),mdRateBtn=document.getElementById("md-rate"),mdSettingsBtn=document.getElementById("md-settings"),mdSheet=document.getElementById("md-sheet"),mdSpeedList=document.getElementById("md-speed-list"),mdQualityList=document.getElementById("md-quality-list"),mdWt=document.getElementById("md-wt"),mdQueue=document.getElementById("md-queue"),mdCast=document.getElementById("md-cast"),mdPrev=document.getElementById("md-prev"),mdNext=document.getElementById("md-next"),mdBackChip=document.getElementById("md-back"),mdLock=document.getElementById("md-lock"),mdUnlock=document.getElementById("md-unlock"),mdRotate=document.getElementById("md-rotate"),mdGind=document.getElementById("md-gind"),mdGiBright=document.getElementById("md-gi-bright"),mdGiVol=document.getElementById("md-gi-vol"),mdGfill=document.getElementById("md-gfill"),anRing=document.getElementById("an-ring"),anNum2=document.getElementById("an-num2"),anCancel2=document.getElementById("an-cancel2"),anNow2=document.getElementById("an-now2");
