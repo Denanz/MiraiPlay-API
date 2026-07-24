@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, existsSync, createReadStream } from 'node:fs';
 import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 import { getSpotlightOverride, setSpotlightOverride } from '../services/spotlight.js';
@@ -121,6 +121,17 @@ export function registerAdmin(scope: FastifyInstance): void {
     const ok = denylist.banIp(ip);
     if (!ok) return reply.code(400).send({ error: 'refused', reason: 'local/private IP' });
     return reply.send({ ok: true });
+  });
+
+  // Приватный APK хаба (fun.denanz.hub) — нигде публично не раздаётся,
+  // единственный путь скачать его — эта кнопка в админке за ADMIN_KEY.
+  scope.get('/admin/hub-apk', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdmin(req, reply)) return;
+    const path = join(settings.STATE_DIR, 'hub.apk');
+    if (!existsSync(path)) return reply.code(404).send({ error: 'not_found' });
+    reply.header('Content-Type', 'application/vnd.android.package-archive');
+    reply.header('Content-Disposition', 'attachment; filename="mirai-hub.apk"');
+    return reply.send(createReadStream(path));
   });
 
   scope.post('/admin/denylist/user', async (req: FastifyRequest, reply: FastifyReply) => {
