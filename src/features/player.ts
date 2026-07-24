@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { settings, allowedOrigins } from '../config/settings.js';
 import { callUpstream, upstreamJson } from '../upstream/client.js';
-import { isAllowedKodikUrl, resolveKodik } from './kodik.js';
+import { isAllowedKodikUrl, resolveKodik, type ResolvedPlayback } from './kodik.js';
+import { isAllowedAniLibriaUrl, resolveAniLibria } from './anilibria.js';
 import { buildPlayerPage } from './player.page.js';
 import { listShots, openShot, removeShot, saveShot, setNote } from '../services/screenshots.js';
 import { resolveBucket, resolveUserId } from '../services/identity.js';
@@ -42,6 +43,16 @@ const frameAncestors = [
   "'self'",
   ...[...allowedOrigins].filter((o) => o.startsWith('http')),
 ].join(' ');
+
+/** Тот же плеер обслуживает несколько бэкендов озвучки; какой резолвер звать —
+ *  определяется хостом самой ссылки эпизода. */
+function isAllowedPlayerUrl(url: string): boolean {
+  return isAllowedKodikUrl(url) || isAllowedAniLibriaUrl(url);
+}
+
+function resolveStream(url: string): Promise<ResolvedPlayback> {
+  return isAllowedKodikUrl(url) ? resolveKodik(url) : resolveAniLibria(url);
+}
 
 function tokenFrom(req: FastifyRequest): string {
   const q = req.query as Record<string, unknown>;
@@ -88,13 +99,13 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!url || !releaseId || !sourceId || !position) {
       return reply.code(400).type('text/plain').send('missing: url, releaseId, sourceId, position');
     }
-    if (!isAllowedKodikUrl(url)) {
+    if (!isAllowedPlayerUrl(url)) {
       return reply.code(400).type('text/plain').send('invalid player url');
     }
 
     let playback;
     try {
-      playback = await resolveKodik(url);
+      playback = await resolveStream(url);
     } catch {
       return reply.code(502).type('text/plain').send('failed to resolve stream');
     }
@@ -221,8 +232,8 @@ export function registerPlayer(scope: FastifyInstance): void {
   // Отдаёт то же, что /player готовит для страницы, но в JSON: плеер подменяет
   // video.src на месте и возвращает таймкод, вместо того чтобы перезагружать
   // себя целиком (перезагрузка сбрасывала бы воспроизведение). Резолв ссылки
-  // Kodik остаётся на сервере — клиенту незачем знать внутренние адреса, да и
-  // проверка isAllowedKodikUrl не должна зависеть от клиента.
+  // остаётся на сервере — клиенту незачем знать внутренние адреса, да и
+  // проверка допустимого хоста не должна зависеть от клиента.
   scope.get('/player/stream', async (req: FastifyRequest, reply: FastifyReply) => {
     const q = req.query as Record<string, string>;
     const { releaseId, sourceId, position } = q;
@@ -241,11 +252,11 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!raw) return reply.code(404).send({ error: 'episode_unavailable' });
 
     const url = raw.startsWith('//') ? `https:${raw}` : raw;
-    if (!isAllowedKodikUrl(url)) return reply.code(400).send({ error: 'invalid_url' });
+    if (!isAllowedPlayerUrl(url)) return reply.code(400).send({ error: 'invalid_url' });
 
     let playback;
     try {
-      playback = await resolveKodik(url);
+      playback = await resolveStream(url);
     } catch {
       return reply.code(502).send({ error: 'resolve_failed' });
     }

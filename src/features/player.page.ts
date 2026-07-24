@@ -113,8 +113,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .quality-wrap { position: relative; }
     .quality-btn { width: auto; padding: 0 11px; font-size: 0.72rem; font-weight: 600; height: 28px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); gap: 4px; background: rgba(255,255,255,0.03); }
     .quality-btn:hover { color: var(--text); border-color: var(--accent-dim); background: rgba(255,255,255,0.06); }
-    .quality-dropdown { position: absolute; bottom: calc(100% + 8px); right: 0; background: rgba(15,12,23,0.97); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 6px; display: none; flex-direction: column; gap: 2px; min-width: 90px; backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 20; }
+    .quality-dropdown { position: absolute; bottom: calc(100% + 8px); right: 0; background: rgba(15,12,23,0.97); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 6px; display: none; flex-direction: column; gap: 2px; min-width: 110px; backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 20; }
     .quality-dropdown.open { display: flex; animation: pop-in 0.14s ease both; }
+    .qd-h { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 10px 4px; }
+    .qd-h:first-child { padding-top: 2px; }
+    .qd-suffix { color: var(--muted); font-weight: 500; }
     @keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
     .quality-option { padding: 7px 12px; border-radius: 9px; font-size: 0.78rem; cursor: pointer; color: var(--muted); transition: background 0.12s, color 0.12s; border: 0; background: transparent; text-align: left; width: 100%; }
     .quality-option:hover { background: rgba(196,165,253,0.1); color: var(--text); }
@@ -255,7 +258,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       .progress-track { height: 4px; }
       .progress-thumb { width: 15px; height: 15px; margin-top: -7.5px; transform: translateX(-50%) scale(1); }
       .progress-wrap:hover .progress-track { height: 4px; }
-      .vol-wrap, #btn-hk, .ctrl-divider, #btn-skip-op, #btn-skip85, #speed-wrap { display: none !important; }
+      .vol-wrap, #btn-hk, .ctrl-divider, #btn-skip-op, #btn-skip85 { display: none !important; }
       .time { font-size: 0.74rem; padding: 0 4px; }
       .quality-btn { height: 32px; font-size: 0.74rem; }
       .big-play svg { width: 76px; height: 76px; }
@@ -748,13 +751,6 @@ export function buildPlayerPage(data: PlayerPageData): string {
             </button>
             <input id="volume" type="range" min="0" max="1" step="0.05" value="1" />
           </div>
-          <div class="quality-wrap" id="speed-wrap">
-            <button class="btn quality-btn" id="speed-btn" type="button">
-              <span id="speed-label-text">1×</span>
-              <svg viewBox="0 0 24 24" style="width:12px;height:12px;margin-left:2px"><path d="M7 10l5 5 5-5z"/></svg>
-            </button>
-            <div class="quality-dropdown" id="speed-dropdown"></div>
-          </div>
           <div class="quality-wrap" id="dub-wrap" style="display:none">
             <button class="btn quality-btn" id="dub-btn" type="button" title="Озвучка">
               <span id="dub-label-text">Озвучка</span>
@@ -762,12 +758,17 @@ export function buildPlayerPage(data: PlayerPageData): string {
             </button>
             <div class="quality-dropdown" id="dub-dropdown"></div>
           </div>
-          <div class="quality-wrap" id="quality-wrap" style="display:none">
-            <button class="btn quality-btn" id="quality-btn" type="button">
-              <span id="quality-label-text">Авто</span>
+          <div class="quality-wrap" id="quality-wrap">
+            <button class="btn quality-btn" id="quality-btn" type="button" title="Качество и скорость">
+              <span id="quality-label-text">Авто</span><span class="qd-suffix"> · <span id="speed-label-text">1×</span></span>
               <svg viewBox="0 0 24 24" style="width:12px;height:12px;margin-left:2px"><path d="M7 10l5 5 5-5z"/></svg>
             </button>
-            <div class="quality-dropdown" id="quality-dropdown"></div>
+            <div class="quality-dropdown" id="quality-dropdown">
+              <div class="qd-h">Скорость</div>
+              <div id="speed-dropdown"></div>
+              <div class="qd-h" id="quality-section-h">Качество</div>
+              <div id="quality-options"></div>
+            </div>
           </div>
           <button class="btn" id="btn-hk" type="button" title="Горячие клавиши">
             <svg viewBox="0 0 24 24"><path d="M20 5H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 5H5v-2h2v2zm9 0H8v-2h8v2zm0-3h-2v-2h2v2zm0-3h-2V8h2v2zm3 6h-2v-2h2v2zm0-3h-2v-2h2v2zm0-3h-2V8h2v2z"/></svg>
@@ -880,10 +881,10 @@ export function buildPlayerPage(data: PlayerPageData): string {
     const CONFIG = ${config};
     function authHeaders(base){base=base||{};if(CONFIG.gatewayKey)base["X-Gateway-Key"]=CONFIG.gatewayKey;return base;}
     (function () {
-      const video=document.getElementById("player"),stage=document.getElementById("stage"),overlay=document.getElementById("overlay"),loader=document.getElementById("loader"),bigPlay=document.getElementById("big-play"),errorPanel=document.getElementById("error-panel"),savedBadge=document.getElementById("saved-badge"),resumeToast=document.getElementById("resume-toast"),resumeText=document.getElementById("resume-text"),resumeBtn=document.getElementById("resume-btn"),resumeSkip=document.getElementById("resume-skip"),progressWrap=document.getElementById("progress-wrap"),progressTrack=document.getElementById("progress-track"),progressPlayed=document.getElementById("progress-played"),progressBuffer=document.getElementById("progress-buffer"),progressSaved=document.getElementById("progress-saved"),progressThumb=document.getElementById("progress-thumb"),timeCur=document.getElementById("time-cur"),timeDur=document.getElementById("time-dur"),btnPlay=document.getElementById("btn-play"),iconPlay=document.getElementById("icon-play"),iconPause=document.getElementById("icon-pause"),btnBack=document.getElementById("btn-back"),btnFwd=document.getElementById("btn-fwd"),btnSkipOp=document.getElementById("btn-skip-op"),btnMute=document.getElementById("btn-mute"),iconVol=document.getElementById("icon-vol"),iconMute=document.getElementById("icon-mute"),btnFs=document.getElementById("btn-fs"),iconFsExpand=document.getElementById("icon-fs-expand"),iconFsShrink=document.getElementById("icon-fs-shrink"),volume=document.getElementById("volume"),qualityWrap=document.getElementById("quality-wrap"),qualityBtn=document.getElementById("quality-btn"),qualityLabelText=document.getElementById("quality-label-text"),qualityDropdown=document.getElementById("quality-dropdown"),speedWrap=document.getElementById("speed-wrap"),speedBtn=document.getElementById("speed-btn"),speedLabelText=document.getElementById("speed-label-text"),speedDropdown=document.getElementById("speed-dropdown"),btnHk=document.getElementById("btn-hk"),hkModal=document.getElementById("hk-modal");
+      const video=document.getElementById("player"),stage=document.getElementById("stage"),overlay=document.getElementById("overlay"),loader=document.getElementById("loader"),bigPlay=document.getElementById("big-play"),errorPanel=document.getElementById("error-panel"),savedBadge=document.getElementById("saved-badge"),resumeToast=document.getElementById("resume-toast"),resumeText=document.getElementById("resume-text"),resumeBtn=document.getElementById("resume-btn"),resumeSkip=document.getElementById("resume-skip"),progressWrap=document.getElementById("progress-wrap"),progressTrack=document.getElementById("progress-track"),progressPlayed=document.getElementById("progress-played"),progressBuffer=document.getElementById("progress-buffer"),progressSaved=document.getElementById("progress-saved"),progressThumb=document.getElementById("progress-thumb"),timeCur=document.getElementById("time-cur"),timeDur=document.getElementById("time-dur"),btnPlay=document.getElementById("btn-play"),iconPlay=document.getElementById("icon-play"),iconPause=document.getElementById("icon-pause"),btnBack=document.getElementById("btn-back"),btnFwd=document.getElementById("btn-fwd"),btnSkipOp=document.getElementById("btn-skip-op"),btnMute=document.getElementById("btn-mute"),iconVol=document.getElementById("icon-vol"),iconMute=document.getElementById("icon-mute"),btnFs=document.getElementById("btn-fs"),iconFsExpand=document.getElementById("icon-fs-expand"),iconFsShrink=document.getElementById("icon-fs-shrink"),volume=document.getElementById("volume"),qualityWrap=document.getElementById("quality-wrap"),qualityBtn=document.getElementById("quality-btn"),qualityLabelText=document.getElementById("quality-label-text"),qualityDropdown=document.getElementById("quality-dropdown"),qualityOptions=document.getElementById("quality-options"),qualitySectionH=document.getElementById("quality-section-h"),speedLabelText=document.getElementById("speed-label-text"),speedDropdown=document.getElementById("speed-dropdown"),btnHk=document.getElementById("btn-hk"),hkModal=document.getElementById("hk-modal");
       // Mobile control refs
       const mPlay=document.getElementById("m-play"),mIconPlay=document.getElementById("m-icon-play"),mIconPause=document.getElementById("m-icon-pause"),mFs=document.getElementById("m-fs"),mIconFsExpand=document.getElementById("m-icon-fs-expand"),mIconFsShrink=document.getElementById("m-icon-fs-shrink"),mProgressWrap=document.getElementById("m-progress-wrap"),mProgressTrack=document.getElementById("m-progress-track"),mProgressPlayed=document.getElementById("m-progress-played"),mProgressBuffer=document.getElementById("m-progress-buffer"),mProgressThumb=document.getElementById("m-progress-thumb"),mTimeCur=document.getElementById("m-time-cur"),mTimeDur=document.getElementById("m-time-dur"),mQualityBtn=document.getElementById("m-quality-btn"),mQualityText=document.getElementById("m-quality-text"),mQualityList=document.getElementById("m-quality-list"),mSheet=document.getElementById("m-sheet"),mSpeedBtn=document.getElementById("m-speed-btn"),mSpeedText=document.getElementById("m-speed-text");
-      let hls=null,currentLabel=CONFIG.defaultLabel,currentRate=1,saveTimer=null,savedBadgeTimer=null,hideTimer=null,seeking=false,resumed=false,pendingResume=CONFIG.resumeTime||0,savedMarkerPct=0,qualityOpen=false,speedOpen=false,hkOpen=false,corsFailed=false;
+      let hls=null,currentLabel=CONFIG.defaultLabel,currentRate=1,saveTimer=null,savedBadgeTimer=null,hideTimer=null,seeking=false,resumed=false,pendingResume=CONFIG.resumeTime||0,savedMarkerPct=0,qualityOpen=false,hkOpen=false,corsFailed=false;
       // Which track's seek function a drag is currently bound to — all three skins'
       // tracks exist in the DOM at all times (only CSS decides which paints), so a
       // single shared window "mousemove" must dispatch to whichever one the drag
@@ -940,8 +941,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function fmt(sec){const s=Math.max(0,Math.floor(sec)),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60,mm=h>0?String(m).padStart(2,"0"):String(m);return h>0?h+":"+mm+":"+String(r).padStart(2,"0"):mm+":"+String(r).padStart(2,"0");}
       function pct(t,d){return(!d||isNaN(d))?0:Math.min(100,Math.max(0,t/d*100));}
       function sheetOpen(){return mSheet&&mSheet.classList.contains("open");}
-      function showOverlay(){if(document.body.classList.contains("locked"))return;overlay.classList.add("visible");stage.classList.add("cursor-visible");reflectSkip();if(hideTimer)clearTimeout(hideTimer);if(!video.paused&&!hkOpen&&!qualityOpen&&!speedOpen&&!sheetOpen()){hideTimer=setTimeout(hideOverlay,3000);}}
-      function hideOverlay(){if(seeking||hkOpen||qualityOpen||speedOpen||sheetOpen())return;overlay.classList.remove("visible");stage.classList.remove("cursor-visible");reflectSkip();}
+      function showOverlay(){if(document.body.classList.contains("locked"))return;overlay.classList.add("visible");stage.classList.add("cursor-visible");reflectSkip();if(hideTimer)clearTimeout(hideTimer);if(!video.paused&&!hkOpen&&!qualityOpen&&!sheetOpen()){hideTimer=setTimeout(hideOverlay,3000);}}
+      function hideOverlay(){if(seeking||hkOpen||qualityOpen||sheetOpen())return;overlay.classList.remove("visible");stage.classList.remove("cursor-visible");reflectSkip();}
       // While locked: reveal the unlock button on tap, auto-hide after 3s.
       let unlockTimer=null;
       function peekUnlock(){document.body.classList.add("unlock-peek");if(unlockTimer)clearTimeout(unlockTimer);unlockTimer=setTimeout(function(){document.body.classList.remove("unlock-peek");},3000);}
@@ -970,7 +971,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         if(window.Hls&&Hls.isSupported()){hls=new Hls({enableWorker:true});hls.loadSource(url);hls.attachMedia(video);hls.on(Hls.Events.MANIFEST_PARSED,onReady);hls.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)showError("ошибка HLS: "+(d.type||"unknown"));});return;}
         showError("браузер не поддерживает HLS");}
       function selectQuality(label){const time=video.currentTime||0;loadStream(label,true);mQualityText.textContent=label;document.querySelectorAll("#quality-dropdown .quality-option, #m-quality-list .quality-option, #md-quality-list .quality-option").forEach(b=>b.classList.toggle("active",b.textContent===label));savePrefs();if(time>0)video.addEventListener("loadedmetadata",()=>{video.currentTime=time;updateProgress();},{once:true});closeQuality();mSheet.classList.remove("open");mdSheet.classList.remove("open");}
-      function buildQualityDropdown(){const qh=document.getElementById("m-quality-h");const mdQh=document.getElementById("md-quality-h");if(CONFIG.qualities.length<=1){qualityWrap.style.display="none";mQualityBtn.style.display="none";if(qh)qh.style.display="none";mQualityList.style.display="none";if(mdQh)mdQh.style.display="none";mdQualityList.style.display="none";return;}qualityWrap.style.display="";mQualityBtn.style.display="";if(qh)qh.style.display="";mQualityList.style.display="";if(mdQh)mdQh.style.display="";mdQualityList.style.display="";mQualityText.textContent=currentLabel;qualityDropdown.innerHTML="";mQualityList.innerHTML="";mdQualityList.innerHTML="";for(const q of CONFIG.qualities){const mk=(host)=>{const btn=document.createElement("button");btn.className="quality-option"+(q.label===currentLabel?" active":"");btn.textContent=q.label;btn.onclick=()=>selectQuality(q.label);host.appendChild(btn);};mk(qualityDropdown);mk(mQualityList);mk(mdQualityList);}}
+      function buildQualityDropdown(){const qh=document.getElementById("m-quality-h");const mdQh=document.getElementById("md-quality-h");if(CONFIG.qualities.length<=1){qualitySectionH.style.display="none";qualityOptions.style.display="none";mQualityBtn.style.display="none";if(qh)qh.style.display="none";mQualityList.style.display="none";if(mdQh)mdQh.style.display="none";mdQualityList.style.display="none";return;}qualitySectionH.style.display="";qualityOptions.style.display="";mQualityBtn.style.display="";if(qh)qh.style.display="";mQualityList.style.display="";if(mdQh)mdQh.style.display="";mdQualityList.style.display="";mQualityText.textContent=currentLabel;qualityOptions.innerHTML="";mQualityList.innerHTML="";mdQualityList.innerHTML="";for(const q of CONFIG.qualities){const mk=(host)=>{const btn=document.createElement("button");btn.className="quality-option"+(q.label===currentLabel?" active":"");btn.textContent=q.label;btn.onclick=()=>selectQuality(q.label);host.appendChild(btn);};mk(qualityOptions);mk(mQualityList);mk(mdQualityList);}}
       function toggleQuality(){qualityOpen=!qualityOpen;qualityDropdown.classList.toggle("open",qualityOpen);if(qualityOpen){if(hideTimer)clearTimeout(hideTimer);}else showOverlay();}
       function closeQuality(){qualityOpen=false;qualityDropdown.classList.remove("open");showOverlay();}
       // ── Горячая смена озвучки ──
@@ -1071,9 +1072,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       }
       // ── Playback speed ──
       function setRate(r){currentRate=r;try{video.playbackRate=r;}catch{}speedLabelText.textContent=r+"×";if(mSpeedText)mSpeedText.textContent=r+"×";document.querySelectorAll("#speed-dropdown .quality-option, #md-speed-list .quality-option").forEach(b=>b.classList.toggle("active",Number(b.dataset.rate)===r));savePrefs();}
-      function buildSpeedDropdown(){speedDropdown.innerHTML="";mdSpeedList.innerHTML="";for(const r of SPEEDS){const btn=document.createElement("button");btn.className="quality-option"+(r===currentRate?" active":"");btn.textContent=r+"×";btn.dataset.rate=String(r);btn.onclick=()=>{setRate(r);closeSpeed();mdSheet.classList.remove("open");};speedDropdown.appendChild(btn);const btn2=document.createElement("button");btn2.className="quality-option"+(r===currentRate?" active":"");btn2.textContent=r+"×";btn2.dataset.rate=String(r);btn2.onclick=()=>{setRate(r);mdSheet.classList.remove("open");};mdSpeedList.appendChild(btn2);}speedLabelText.textContent=currentRate+"×";if(mSpeedText)mSpeedText.textContent=currentRate+"×";}
-      function toggleSpeed(){speedOpen=!speedOpen;speedDropdown.classList.toggle("open",speedOpen);if(speedOpen){if(hideTimer)clearTimeout(hideTimer);}else showOverlay();}
-      function closeSpeed(){speedOpen=false;speedDropdown.classList.remove("open");showOverlay();}
+      function buildSpeedDropdown(){speedDropdown.innerHTML="";mdSpeedList.innerHTML="";for(const r of SPEEDS){const btn=document.createElement("button");btn.className="quality-option"+(r===currentRate?" active":"");btn.textContent=r+"×";btn.dataset.rate=String(r);btn.onclick=()=>{setRate(r);closeQuality();mdSheet.classList.remove("open");};speedDropdown.appendChild(btn);const btn2=document.createElement("button");btn2.className="quality-option"+(r===currentRate?" active":"");btn2.textContent=r+"×";btn2.dataset.rate=String(r);btn2.onclick=()=>{setRate(r);mdSheet.classList.remove("open");};mdSpeedList.appendChild(btn2);}speedLabelText.textContent=currentRate+"×";if(mSpeedText)mSpeedText.textContent=currentRate+"×";}
       function toggleHk(){hkOpen=!hkOpen;hkModal.classList.toggle("open",hkOpen);if(hkOpen){if(hideTimer)clearTimeout(hideTimer);overlay.classList.add("visible");}else showOverlay();}
       const isTouch = matchMedia("(hover: none)").matches || ("ontouchstart" in window);
 
@@ -1152,10 +1151,9 @@ export function buildPlayerPage(data: PlayerPageData): string {
       volume.addEventListener("input",()=>{video.volume=Number(volume.value);video.muted=video.volume===0;savePrefs();});
       video.addEventListener("volumechange",()=>{volume.value=String(video.muted?0:video.volume);mdVolume.value=String(video.muted?0:video.volume);mdVolOn.style.display=video.muted?"none":"block";mdVolOff.style.display=video.muted?"block":"none";iconVol.style.display=video.muted?"none":"block";iconMute.style.display=video.muted?"block":"none";});
       qualityBtn.addEventListener("click",e=>{e.stopPropagation();toggleQuality();});
-      speedBtn.addEventListener("click",e=>{e.stopPropagation();toggleSpeed();});
       btnHk.addEventListener("click",e=>{e.stopPropagation();toggleHk();});
       hkModal.addEventListener("click",e=>{if(e.target===hkModal)toggleHk();});
-      document.addEventListener("click",e=>{if(qualityOpen&&!qualityWrap.contains(e.target))closeQuality();if(speedOpen&&!speedWrap.contains(e.target))closeSpeed();});
+      document.addEventListener("click",e=>{if(qualityOpen&&!qualityWrap.contains(e.target))closeQuality();});
       document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA"].includes(e.target?.tagName))return;const k=e.key.toLowerCase();if(hkOpen){if(k==="?"||k==="escape"){e.preventDefault();toggleHk();}return;}if(k===" "||k==="k"){e.preventDefault();togglePlay();}else if(k==="arrowleft"||k==="j"){e.preventDefault();seekBy(-10);}else if(k==="arrowright"||k==="l"){e.preventDefault();seekBy(10);}else if(k==="arrowup"){e.preventDefault();video.muted=false;video.volume=Math.min(1,video.volume+0.1);volume.value=String(video.volume);}else if(k==="arrowdown"){e.preventDefault();video.volume=Math.max(0,video.volume-0.1);volume.value=String(video.volume);}else if(k==="f"){e.preventDefault();toggleFs();}else if(k==="m"){e.preventDefault();video.muted=!video.muted;}else if(k==="o"){e.preventDefault();const t=video.currentTime||0;const iv=skipIntervals.find(i=>t>=i.start-1&&t<i.end);if(iv){video.currentTime=iv.end;updateProgress();}else seekBy(85);}else if(k==="?"){e.preventDefault();toggleHk();}else if(k>="0"&&k<="9"){e.preventDefault();seekToRatio(Number(k)/10);}showOverlay();});
       let historyAdded=false;
       function addToHistory(){if(historyAdded||!CONFIG.token)return;historyAdded=true;fetch("/api/v1/history/add/"+CONFIG.releaseId+"/"+CONFIG.sourceId+"/"+CONFIG.episodePosition+"?token="+encodeURIComponent(CONFIG.token),{headers:authHeaders()}).catch(()=>{});}
