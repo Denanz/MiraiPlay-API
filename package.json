@@ -1,9 +1,9 @@
 {
-  "name": "miraihub",
+  "name": "miraiplay-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "MiraiHub — gateway/edge layer in front of a public anime API",
+  "description": "MiraiPlay — gateway/edge layer in front of a public anime API",
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsup",

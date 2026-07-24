@@ -395,7 +395,7 @@ export function registerRelease(scope: FastifyInstance): void {
     // Confirm the bot can actually reach this chat (needs a prior /start).
     const delivered = await sendTo(
       clean,
-      '✅ <b>MiraiHub</b>: уведомления о новых сериях подключены.',
+      '✅ <b>MiraiPlay</b>: уведомления о новых сериях подключены.',
     );
     return reply.send({ ok: true, delivered });
   });

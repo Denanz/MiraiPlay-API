@@ -37,7 +37,7 @@ const schema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
 
   // Label used as a heading in enriched release notes.
-  BRAND_LABEL: z.string().default('MiraiHub'),
+  BRAND_LABEL: z.string().default('MiraiPlay'),
 
   // Release enrichment (Shikimori). Enabled unless explicitly disabled.
   RELEASE_ENRICH: z
