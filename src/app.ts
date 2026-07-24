@@ -14,6 +14,7 @@ import { registerTogether } from './features/together.js';
 import { registerApp } from './features/app.js';
 import { registerAdmin } from './features/admin.js';
 import { registerFeedback } from './features/feedback.js';
+import { registerAnimelib } from './features/animelib.js';
 import { registerPassthrough } from './gateway/passthrough.js';
 
 /**
@@ -57,6 +58,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       registerApp(scope);
       registerAdmin(scope);
       registerFeedback(scope);
+      registerAnimelib(scope);
       registerPassthrough(scope);
     },
     { prefix: '/api/v1' },

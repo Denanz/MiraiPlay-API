@@ -3,6 +3,7 @@ import { settings, allowedOrigins } from '../config/settings.js';
 import { callUpstream, upstreamJson } from '../upstream/client.js';
 import { isAllowedKodikUrl, resolveKodik, type ResolvedPlayback } from './kodik.js';
 import { isAllowedAniLibriaUrl, resolveAniLibria } from './anilibria.js';
+import { resolveAnimelibTeam } from '../services/animelib.js';
 import { buildPlayerPage } from './player.page.js';
 import { listShots, openShot, removeShot, saveShot, setNote } from '../services/screenshots.js';
 import { resolveBucket, resolveUserId } from '../services/identity.js';
@@ -94,20 +95,44 @@ export function registerPlayer(scope: FastifyInstance): void {
   // ── HTML player page ──
   scope.get('/player', async (req: FastifyRequest, reply: FastifyReply) => {
     const q = req.query as Record<string, string>;
-    const { url, title, subtitle, releaseId, sourceId, position, token } = q;
+    const { url, title, subtitle, releaseId, sourceId, position, token, animelibTeam } = q;
 
-    if (!url || !releaseId || !sourceId || !position) {
-      return reply.code(400).type('text/plain').send('missing: url, releaseId, sourceId, position');
-    }
-    if (!isAllowedPlayerUrl(url)) {
-      return reply.code(400).type('text/plain').send('invalid player url');
+    if (!releaseId || !sourceId || !position || (!url && !animelibTeam)) {
+      return reply.code(400).type('text/plain').send('missing: url (or animelibTeam), releaseId, sourceId, position');
     }
 
     let playback;
-    try {
-      playback = await resolveStream(url);
-    } catch {
-      return reply.code(502).type('text/plain').send('failed to resolve stream');
+    // AnimeLib chosen as the source up front (WatchPage's "Источник" picker) —
+    // its qualities are resolved straight from the viewer's own AnimeLib
+    // account, bypassing the Kodik/AniLibria url-resolve path entirely.
+    if (animelibTeam) {
+      const userId = await resolveUserId(token || '');
+      if (!userId) return reply.code(401).type('text/plain').send('auth required');
+      const result = await resolveAnimelibTeam(userId, releaseId, Number(position), animelibTeam, {
+        orig: q.origTitle || undefined,
+        ru: title || undefined,
+      });
+      if (!result.found || !result.qualities?.length) {
+        return reply.code(502).type('text/plain').send('animelib: ' + (result.reason || 'not found'));
+      }
+      // Relayed through /animelib/stream, not linked to video1.cdnlibs.org
+      // directly — DDoS-Guard in front of that CDN gates on Referer, and a
+      // <video src> loaded straight from our own domain would send the wrong
+      // one (see features/animelib.ts's /animelib/stream for the real fix).
+      const qualities = result.qualities.map((q) => ({
+        label: q.label,
+        url: `/api/v1/animelib/stream?url=${encodeURIComponent(q.url)}`,
+      }));
+      playback = { qualities, defaultLabel: qualities[0]!.label };
+    } else {
+      if (!isAllowedPlayerUrl(url)) {
+        return reply.code(400).type('text/plain').send('invalid player url');
+      }
+      try {
+        playback = await resolveStream(url);
+      } catch {
+        return reply.code(502).type('text/plain').send('failed to resolve stream');
+      }
     }
 
     // Cross-device resume: pull the last saved position for this episode from
@@ -144,6 +169,7 @@ export function registerPlayer(scope: FastifyInstance): void {
       gatewayKey: settings.GATEWAY_KEY || undefined,
       malId: malId ?? undefined,
       design: q.design === 'modern' ? 'modern' : 'legacy',
+      titleOriginal: q.origTitle || undefined,
     });
 
     reply

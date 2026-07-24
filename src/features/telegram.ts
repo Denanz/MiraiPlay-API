@@ -3,7 +3,10 @@ import { settings } from '../config/settings.js';
 import { denylist } from '../services/blocklist.js';
 import { telemetry } from '../services/monitor.js';
 import { ackCallback, htmlEscape, notify, rewriteMessage } from '../services/notifier.js';
+import type { TgButton } from '../services/notifier.js';
 import { checkNewEpisodes } from '../services/notify-episodes.js';
+import { animeHasEpisodes, setOverride } from '../services/animelib.js';
+import { upstreamJson } from '../upstream/client.js';
 
 /**
  * Inbound Telegram webhook — the operator's admin console. Validates the shared
@@ -44,7 +47,109 @@ async function handleCallback(cb: any): Promise<void> {
     const ok = denylist.banIp(ip);
     await ackCallback(cb.id, ok ? `IP ${ip} забанен` : 'Этот IP нельзя забанить');
     if (messageId && ok) await rewriteMessage(messageId, `🚫 IP <code>${ip}</code> забанен.`);
+    return;
   }
+
+  if (data.startsWith('al-set:')) {
+    const [releaseId, animeIdStr] = data.slice('al-set:'.length).split(':');
+    const animeId = Number(animeIdStr);
+    if (!releaseId || !animeId) return;
+    setOverride(releaseId, animeId);
+    await ackCallback(cb.id, 'Привязано');
+    if (messageId) {
+      const rel = await upstreamJson<{ release?: { title_ru?: string } }>({ path: `/release/${releaseId}` });
+      const title = rel.data?.release?.title_ru || `releaseId ${releaseId}`;
+      await rewriteMessage(
+        messageId,
+        `✅ <b>${htmlEscape(title)}</b> привязан к AnimeLib id <code>${animeId}</code>.`,
+      );
+    }
+    return;
+  }
+
+  if (data === 'al-cancel') {
+    await ackCallback(cb.id, 'Отменено');
+    if (messageId) await rewriteMessage(messageId, '❌ Отменено.');
+  }
+}
+
+// Matches an animelib.org anime page link and captures its numeric id and
+// slug — e.g. "https://animelib.org/ru/anime/23663--gachiakuta-anime".
+// Manga/ranobe links on the same domain are ignored; this integration is
+// anime-only end to end (see services/animelib.ts).
+const ANIMELIB_LINK_RE = /animelib\.org\/(?:[a-z]{2}\/)?anime\/(\d+)--([a-z0-9-]+)/i;
+
+// AnimeLib slugs are romaji/English-derived (e.g. "gachiakuta-anime"), close
+// enough to a release's title_original to drive Anixart's own search — which,
+// unlike AnimeLib's, doesn't hide anything. Stripping the trailing type
+// marker and swapping hyphens for spaces turns the slug back into something
+// closer to a real title.
+function deriveSearchQuery(slug: string): string {
+  return slug.replace(/-(anime|tv|ova|ona|movie|special)$/i, '').replace(/-/g, ' ').trim();
+}
+
+interface ReleaseSearchItem {
+  id: number;
+  title_ru?: string;
+  title_original?: string;
+  year?: number | string;
+}
+
+function extractSearchResults(data: unknown): ReleaseSearchItem[] {
+  const obj = data as { content?: ReleaseSearchItem[] | { content?: ReleaseSearchItem[] }; releases?: ReleaseSearchItem[] };
+  if (Array.isArray(obj?.content)) return obj.content;
+  if (obj?.content && 'content' in obj.content && Array.isArray(obj.content.content)) return obj.content.content;
+  return obj?.releases ?? [];
+}
+
+/**
+ * Lets the admin paste a bare animelib.org anime link into the bot chat
+ * instead of clicking through the site's own override field. No automatic
+ * matching happens here either (see services/animelib.ts on why that was
+ * dropped) — the id is confirmed to be real, a search query is *derived*
+ * from the link's own slug, and the admin still picks the right release
+ * from Anixart's search results by hand via inline buttons.
+ */
+async function handleAnimelibLink(text: string): Promise<void> {
+  const match = text.match(ANIMELIB_LINK_RE);
+  if (!match) return;
+  const animeId = Number(match[1]);
+  const slug = match[2];
+
+  if (!(await animeHasEpisodes(animeId))) {
+    await notify(`⚠️ AnimeLib id <code>${animeId}</code> из ссылки не отдаёт серии — проверь ссылку.`);
+    return;
+  }
+
+  const query = deriveSearchQuery(slug);
+  const res = await upstreamJson({
+    method: 'POST',
+    path: '/search/releases/0',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query, searchBy: 0 }),
+  });
+  const items = extractSearchResults(res.data).slice(0, 5);
+
+  if (items.length === 0) {
+    await notify(
+      `🔎 AnimeLib id <code>${animeId}</code> подтверждён, но по запросу «${htmlEscape(query)}» на сайте ничего не нашлось.\n` +
+        'Привяжи вручную на странице серий — сама ссылка рабочая.',
+    );
+    return;
+  }
+
+  const keyboard: TgButton[][] = items.map((r) => [
+    {
+      text: `${r.title_ru || r.title_original || r.id} (${r.year || '?'})`,
+      callback_data: `al-set:${r.id}:${animeId}`,
+    },
+  ]);
+  keyboard.push([{ text: '❌ Отмена', callback_data: 'al-cancel' }]);
+
+  await notify(
+    `🔗 AnimeLib id <code>${animeId}</code> (по ссылке: «${htmlEscape(query)}»).\nС каким тайтлом на сайте связать?`,
+    keyboard,
+  );
 }
 
 async function handleCommand(text: string): Promise<void> {
@@ -148,7 +253,8 @@ async function handleCommand(text: string): Promise<void> {
           '/episodes — проверить новые серии из вотчлиста\n' +
           '/denylist — показать денилист\n' +
           '/ban_user &lt;id|логин&gt; · /unban_user &lt;id|логин&gt;\n' +
-          '/ban_ip &lt;ip&gt; · /unban_ip &lt;ip&gt;',
+          '/ban_ip &lt;ip&gt; · /unban_ip &lt;ip&gt;\n\n' +
+          '🔗 Просто кинь ссылку на animelib.org/anime/... — предложу, с каким тайтлом на сайте её связать.',
       );
       break;
   }
@@ -184,6 +290,7 @@ export function registerTelegram(scope: FastifyInstance): void {
       }
       const text: string = update.message?.text ?? '';
       if (text.startsWith('/')) await handleCommand(text);
+      else if (text) await handleAnimelibLink(text);
     } catch {
       // Never throw out of a webhook handler.
     }

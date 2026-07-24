@@ -41,6 +41,10 @@ function keyExempt(method: string, path: string): boolean {
   if (method === 'GET' && path === '/api/v1/img') return true;
   if (method === 'GET' && path === '/api/v1/player') return true;
   if (method === 'GET' && path.startsWith('/api/v1/player/screenshots/file/')) return true;
+  // Loaded via <video src>, which can't attach custom headers. Safe to exempt —
+  // the route itself only relays a URL already validated against the AnimeLib
+  // video CDN allowlist, same posture as /player above.
+  if (method === 'GET' && path === '/api/v1/animelib/stream') return true;
   return false;
 }
 
