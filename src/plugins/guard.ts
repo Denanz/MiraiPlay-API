@@ -45,6 +45,9 @@ function keyExempt(method: string, path: string): boolean {
   // the route itself only relays a URL already validated against the AnimeLib
   // video CDN allowlist, same posture as /player above.
   if (method === 'GET' && path === '/api/v1/animelib/stream') return true;
+  // Хроника носит собственный ключ (X-Timeline-Key) и проверяет его сама —
+  // MiraiTimeline ходит во все три трекера одним заголовком, а не двумя.
+  if (method === 'GET' && path === '/api/v1/timeline/events') return true;
   return false;
 }
 

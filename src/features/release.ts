@@ -173,8 +173,21 @@ export function registerRelease(scope: FastifyInstance): void {
     });
 
     if (upstream.status !== 200 || !upstream.data) {
-      reply.status(upstream.status);
       reply.header('content-type', 'application/json; charset=utf-8');
+      // Пустое тело с заголовком application/json роняет клиента на разборе
+      // JSON — а именно так отвечал upstream на нечисловой id («/release/abc»:
+      // 200 и ноль байт). Отдаём осмысленный ответ вместо пустоты: при 200 без
+      // данных это «не найдено» в том же формате, что уже понимает приложение
+      // (upstream отвечает так на /release/-1), при ошибке — код ошибки.
+      if (!upstream.body || upstream.body.length === 0) {
+        if (upstream.status === 200) {
+          reply.status(200);
+          return reply.send(JSON.stringify({ code: 2, release: null }));
+        }
+        reply.status(upstream.status);
+        return reply.send(JSON.stringify({ code: 1, release: null, error: 'upstream_error' }));
+      }
+      reply.status(upstream.status);
       return reply.send(upstream.body);
     }
 

@@ -37,6 +37,9 @@ services:
     networks:
       - miraihub-net
       - hoarder_hoarder-net
+      # Сеть mirai-auth: отсюда шлюз спрашивает, кто вошёл в MiraiHub, и
+      # связывает аккаунт Anixart с учётной записью хаба.
+      - services_default
 
 volumes:
   miraihub-state:
@@ -46,4 +49,6 @@ networks:
     driver: bridge
   # Shared with services-nginx so it can reach this container as `miraihub:3000`.
   hoarder_hoarder-net:
+    external: true
+  services_default:
     external: true

@@ -27,6 +27,18 @@ const schema = z.object({
   // (not a real secret). Owner-only diagnostics stay 404 until this is set.
   ADMIN_KEY: z.string().optional(),
 
+  // Ключ read-only хроники просмотров (X-Timeline-Key), которую опрашивает
+  // MiraiTimeline. Если не задан, роут принимает GATEWAY_KEY; если не задано
+  // ни то, ни другое — роута нет (404).
+  TIMELINE_KEY: z.string().optional(),
+  // Хроника теперь пишется всем и метится Anixart-id, а отдаётся строго по
+  // запрошенному пользователю — фильтр «только владелец» больше не нужен.
+
+  // Адрес и ключ mirai-auth: по ним шлюз узнаёт, кто вошёл в MiraiHub, и
+  // связывает его учётку с аккаунтом Anixart.
+  AUTH_BASE_URL: z.string().default('http://mirai-hub:8000'),
+  SERVICE_KEY: z.string().optional(),
+
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),

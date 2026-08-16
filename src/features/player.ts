@@ -11,6 +11,8 @@ import { getAuth as getShikiAuth } from '../services/shikimori-auth.js';
 import { pushUserRate } from '../services/shikimori-sync.js';
 import { getProgress, listContinue, saveProgress } from '../services/progress.js';
 import { setNotifyToken } from '../services/notify-episodes.js';
+import { recordWatch } from '../services/timeline.js';
+import { bindAnixart, hubUserFromCookie } from '../services/mirai-auth.js';
 import { findAnime } from '../services/shikimori.js';
 import {
   setRating,
@@ -170,6 +172,7 @@ export function registerPlayer(scope: FastifyInstance): void {
       malId: malId ?? undefined,
       design: q.design === 'modern' ? 'modern' : 'legacy',
       titleOriginal: q.origTitle || undefined,
+      markWatchedSourceId: q.markSourceId || undefined,
     });
 
     reply
@@ -181,29 +184,39 @@ export function registerPlayer(scope: FastifyInstance): void {
 
   // ── watch progress sync ──
   scope.post('/player/progress', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { releaseId, sourceId, episodePosition, time, duration, title, token } = (req.body ??
-      {}) as {
-      releaseId?: unknown;
-      sourceId?: unknown;
-      episodePosition?: unknown;
-      time?: unknown;
-      duration?: unknown;
-      title?: unknown;
-      token?: unknown;
-    };
+    const { releaseId, sourceId, episodePosition, time, duration, title, token, markWatchedSourceId } =
+      (req.body ?? {}) as {
+        releaseId?: unknown;
+        sourceId?: unknown;
+        episodePosition?: unknown;
+        time?: unknown;
+        duration?: unknown;
+        title?: unknown;
+        token?: unknown;
+        markWatchedSourceId?: unknown;
+      };
     if (!releaseId || !sourceId || !episodePosition) {
       return reply.code(400).send({ error: 'missing_fields' });
     }
-    // Mark the episode watched upstream once the user is ~through it.
-    if (
+    // Mark the episode watched upstream once the user is ~through it. AnimeLib
+    // playback reports sourceId:-1 (our own sentinel — see WatchPage), which
+    // Anixart's account has never heard of, so the real call needs a genuine
+    // source id in its place; markWatchedSourceId carries one along
+    // (WatchPage picks any real source for the release) when sourceId itself
+    // isn't usable for this specific call. Progress storage below still keys
+    // on the original sourceId regardless, so resume/continue-watching stay
+    // correctly scoped to AnimeLib specifically.
+    const finished =
       typeof time === 'number' &&
       typeof duration === 'number' &&
       duration > 0 &&
-      time / duration >= 0.9
-    ) {
+      time / duration >= 0.9;
+    if (finished) {
+      const watchSourceId =
+        typeof markWatchedSourceId === 'string' && markWatchedSourceId ? markWatchedSourceId : sourceId;
       void callUpstream({
         method: 'GET',
-        path: `/episode/watch/${releaseId}/${sourceId}/${episodePosition}`,
+        path: `/episode/watch/${releaseId}/${watchSourceId}/${episodePosition}`,
         query: typeof token === 'string' ? { token } : undefined,
       }).catch(() => {});
       // Тем же моментом двигаем счётчик серий в списке на Shikimori.
@@ -216,6 +229,32 @@ export function registerPlayer(scope: FastifyInstance): void {
     }
     // Persist fine-grained position for cross-device resume + continue-watching.
     if (typeof token === 'string' && token && typeof time === 'number' && time >= 0) {
+      // Хроника просмотров для MiraiTimeline — пишется всем и метится
+      // Anixart-id зрителя; кому её показывать, решает уже сам MiraiTimeline.
+      const viewerId = await resolveUserId(token);
+      if (viewerId) {
+        recordWatch({
+          userId: viewerId,
+          releaseId: String(releaseId),
+          sourceId: String(sourceId),
+          episode: String(episodePosition),
+          title: typeof title === 'string' ? title.slice(0, 200) : undefined,
+          position: time,
+          duration: typeof duration === 'number' && duration > 0 ? duration : 0,
+          finished,
+          token,
+        });
+
+        // Заодно связываем аккаунт Anixart с учётной записью MiraiHub: в этом
+        // же запросе есть и токен, и cookie хаба (она выдана на весь
+        // .denanz.fun, а плеер живёт на его поддомене). Ни кодов, ни ручного
+        // ввода идентификаторов не нужно — достаточно один раз посмотреть
+        // серию, будучи залогиненным в хабе.
+        void (async () => {
+          const hubUserId = await hubUserFromCookie(req.headers.cookie);
+          if (hubUserId !== null) await bindAnixart(hubUserId, viewerId);
+        })();
+      }
       saveProgress(await resolveBucket(token), {
         releaseId: String(releaseId),
         sourceId: String(sourceId),
@@ -324,7 +363,8 @@ export function registerPlayer(scope: FastifyInstance): void {
         time: Number(time) || undefined,
       });
       return reply.send({ ok: true, id: meta.id });
-    } catch {
+    } catch (err) {
+      req.log.error({ err }, 'screenshot save failed');
       return reply.code(500).send({ error: 'save_failed' });
     }
   });

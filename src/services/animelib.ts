@@ -123,6 +123,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Shared (not per-user) cache for every AnimeLib network call — search,
+// episode rosters, per-episode dub details. Safe to share across users: an
+// authenticated response's *content* isn't personalized by which account
+// asked, only gated on whether the request was authenticated at all (see the
+// file-level doc comment).
+//
+// No TTL — entries live for the process's lifetime, and that lifetime is
+// already bounded from outside: /usr/local/bin/weekly-maintenance.sh (cron,
+// Sunday 00:00 UTC) does a full `apt upgrade && reboot`, which restarts every
+// container including this one. That's a better staleness bound than any
+// fixed TTL picked by hand — a currently-airing show's new episode is at most
+// a week from showing up, with no time-tracking code needed at all. Only
+// meaningfully non-empty results get cached: caching an empty/failed result
+// would freeze a transient blip into a false negative until the next reboot,
+// defeating the retry logic those blips already get elsewhere in this file.
+
 // AnimeLib's edge (behind DDoS-Guard) occasionally drops a connection or
 // times out for a request that succeeds moments later — observed directly
 // while debugging this file more than once, including a blip that outlasted
@@ -178,29 +194,31 @@ function isRealSeries(r: AnimeSearchResult): boolean {
 // a token, so this only ever runs for a user who's connected their own
 // account — there's no anonymous fallback attempt, since it would just widen
 // the anonymous 403/hidden-content gap into an inconsistent partial result.
+const searchCache = new Map<string, AnimeSearchResult[]>();
 async function searchAnime(query: string, token: string): Promise<AnimeSearchResult[]> {
+  const cached = searchCache.get(query);
+  if (cached) return cached;
   const url = new URL(`${CATALOG_API}/anime`);
   url.searchParams.set('q', query);
   const j = await fetchJson<{ data?: AnimeSearchResult[] }>(url, {
     ...REQUEST_HEADERS,
     authorization: `Bearer ${token}`,
   });
-  return (j?.data ?? []).filter(isRealSeries);
+  const results = (j?.data ?? []).filter(isRealSeries);
+  if (results.length > 0) searchCache.set(query, results);
+  return results;
 }
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, ' ').trim();
 }
 
-/** Exact normalized match preferred (search ranks loosely); falls back to the top hit. */
-function pickBestMatch(results: AnimeSearchResult[], titles: string[]): AnimeSearchResult | null {
-  if (results.length === 0) return null;
-  const wanted = new Set(titles.map(normalize));
+function pickExactMatch(results: AnimeSearchResult[], wanted: Set<string>): AnimeSearchResult | null {
   for (const r of results) {
     const candidates = [r.name, r.rus_name, r.eng_name].filter((s): s is string => !!s).map(normalize);
     if (candidates.some((c) => wanted.has(c))) return r;
   }
-  return results[0] ?? null;
+  return null;
 }
 
 export async function findAnimeId(
@@ -211,11 +229,27 @@ export async function findAnimeId(
   const override = getOverride(releaseId);
   if (override) return override;
   if (!token) return null;
-  const query = titles.orig || titles.en || titles.ru;
-  if (!query) return null;
-  const results = await searchAnime(query, token);
-  const wanted = [titles.orig, titles.en, titles.ru].filter((x): x is string => !!x);
-  return pickBestMatch(results, wanted)?.id ?? null;
+
+  const variants = [...new Set([titles.orig, titles.en, titles.ru].filter((x): x is string => !!x))];
+  if (variants.length === 0) return null;
+  const wanted = new Set(variants.map(normalize));
+
+  // Each title variant is its own search — AnimeLib's own `name` field can be
+  // garbled or just not what Anixart's title_original says (seen directly:
+  // "Evangelion: 3.0+1.01 Thrice Upon a Time" returns nothing on AnimeLib —
+  // its actual entry is filed under a broken "Shin Evangelion Movie:||" —
+  // while the plain Russian title finds it immediately). Trying only the
+  // first-priority variant and giving up on an empty result missed titles
+  // that a *different* variant would have found outright.
+  let fallback: AnimeSearchResult | null = null;
+  for (const query of variants) {
+    const results = await searchAnime(query, token);
+    if (results.length === 0) continue;
+    fallback ??= results[0]!;
+    const exact = pickExactMatch(results, wanted);
+    if (exact) return exact.id;
+  }
+  return fallback?.id ?? null;
 }
 
 interface EpisodeListItem {
@@ -228,11 +262,17 @@ interface EpisodeListItem {
 // turns out to be useful: it's the one cheap way to get AnimeLib's real
 // episode roster, which is what makes matching by number reliable at all
 // (see listAnimelibTeams below for why that matters).
+const episodesCache = new Map<string, EpisodeListItem[]>();
 async function listEpisodes(animeId: number): Promise<EpisodeListItem[]> {
+  const key = String(animeId);
+  const cached = episodesCache.get(key);
+  if (cached) return cached;
   const url = new URL(`${CATALOG_API}/episodes`);
-  url.searchParams.set('anime_id', String(animeId));
+  url.searchParams.set('anime_id', key);
   const j = await fetchJson<{ data?: EpisodeListItem[] }>(url, REQUEST_HEADERS);
-  return j?.data ?? [];
+  const episodes = j?.data ?? [];
+  if (episodes.length > 0) episodesCache.set(key, episodes);
+  return episodes;
 }
 
 // Dedupes because AnimeLib's roster isn't always one row per real episode —
@@ -287,15 +327,33 @@ function dubDisplayName(p: RawPlayer): string {
 
 /** All "Animelib"-native dubs for one episode (Kodik-backed entries are irrelevant
  *  here — kodik.ts already covers those via the normal Anixart dubber list). */
+const dubsCache = new Map<string, Array<{ team: string; qualities: AnimelibQuality[] }>>();
 async function fetchAnimelibDubs(
   episodeId: number,
   token: string,
 ): Promise<Array<{ team: string; qualities: AnimelibQuality[] }>> {
-  const j = await fetchJson<{ data?: { players?: RawPlayer[] } }>(`${AUTH_API}/episodes/${episodeId}`, {
-    ...REQUEST_HEADERS,
-    authorization: `Bearer ${token}`,
-  });
-  const players = j?.data?.players ?? [];
+  const key = String(episodeId);
+  const cached = dubsCache.get(key);
+  if (cached) return cached;
+
+  // A 200 with a genuinely empty players array is itself a sign of the same
+  // AnimeLib flakiness fetchJson retries for — but fetchJson can't catch it,
+  // since an empty body is a perfectly normal-looking 200, not a network/5xx
+  // error. Reproduced directly: One Piece episode 641 (long-confirmed to
+  // carry 3 native dubs) came back with an empty player list once, then the
+  // full list immediately on the very next attempt. A real episode id
+  // (already resolved to exist) essentially always has *some* players — even
+  // just Kodik entries — so an empty array here is worth a few retries of
+  // its own, on top of fetchJson's per-request ones.
+  let players: RawPlayer[] = [];
+  for (let attempt = 0; attempt < 3 && players.length === 0; attempt++) {
+    if (attempt > 0) await sleep(300 * attempt);
+    const j = await fetchJson<{ data?: { players?: RawPlayer[] } }>(`${AUTH_API}/episodes/${episodeId}`, {
+      ...REQUEST_HEADERS,
+      authorization: `Bearer ${token}`,
+    });
+    players = j?.data?.players ?? [];
+  }
   const dubs: Array<{ team: string; qualities: AnimelibQuality[] }> = [];
   for (const p of players) {
     if (p.player !== 'Animelib' || !p.video?.quality?.length) continue;
@@ -306,6 +364,7 @@ async function fetchAnimelibDubs(
         .map((q) => ({ label: `${q.quality}p`, url: absoluteVideoUrl(q.href) })),
     });
   }
+  if (dubs.length > 0) dubsCache.set(key, dubs);
   return dubs;
 }
 

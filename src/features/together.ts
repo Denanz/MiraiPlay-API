@@ -4,9 +4,13 @@ import { settings } from '../config/settings.js';
 
 /**
  * Watch Together — host-authoritative synchronized playback rooms over a single
- * WebSocket route (/api/v1/together). The host drives content/playback; guests
- * receive state and soft-sync. The message envelope (the `t` discriminator and
- * its fields) is the wire contract the front-end speaks.
+ * WebSocket route (/api/v1/together). The host alone drives content/playback;
+ * guests only ever receive and apply state. `hostToken` (returned on 'create',
+ * presented again on 'rejoin_host') lets the host's own connection recover
+ * from a network drop without losing the room — otherwise a blip on either
+ * side just ends the session, which is most of what "works badly" reports
+ * about this feature turned out to be. The message envelope (the `t`
+ * discriminator and its fields) is the wire contract the front-end speaks.
  */
 
 interface Content {
@@ -24,11 +28,20 @@ interface Content {
 interface Playback {
   time: number;
   paused: boolean;
+  // Server clock at the moment this state was recorded — lets clients that
+  // calibrated their clock offset (see the 'sync' message) work out how much
+  // time has actually elapsed since, instead of applying `time` verbatim and
+  // landing a fixed step behind (see the 'pb'/'sync' handling below).
+  at: number;
 }
 
 interface Room {
   code: string;
   host: WebSocket | null;
+  // Lets the host's own socket reconnect and reclaim the room (same code,
+  // same content/queue/playback) after a network blip, rather than a dropped
+  // connection permanently orphaning it — see 'rejoin_host'.
+  hostToken: string;
   guests: Set<WebSocket>;
   content: Content | null;
   playback: Playback | null;
@@ -42,6 +55,10 @@ const ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const rooms = new Map<string, Room>();
+
+function newToken(): string {
+  return Array.from({ length: 24 }, () => CODE_ALPHABET[(Math.random() * CODE_ALPHABET.length) | 0]).join('');
+}
 
 setInterval(() => {
   const now = Date.now();
@@ -90,6 +107,8 @@ interface Inbound {
   queue?: Content[];
   time?: number;
   paused?: boolean;
+  token?: string;
+  ct?: number;
 }
 
 function onConnection(socket: WebSocket): void {
@@ -112,15 +131,28 @@ function onConnection(socket: WebSocket): void {
     if (room) room.touchedAt = Date.now();
 
     switch (msg.t) {
+      // Clock calibration — independent of any room, just an echo carrying
+      // both endpoints' clocks so the client can work out its offset from
+      // server time and a round-trip estimate, and later correct the `time`
+      // in a 'pb' broadcast for however long it's been in flight since `at`
+      // (see the client for the actual compensation — this only supplies the
+      // raw timing data).
+      case 'sync': {
+        deliver(socket, { t: 'sync', ct: msg.ct, st: Date.now() });
+        return;
+      }
+
       case 'create': {
         if (rooms.size >= MAX_ROOMS) {
           deliver(socket, { t: 'error', error: 'server_full' });
           return;
         }
         const code = newCode();
+        const hostToken = newToken();
         rooms.set(code, {
           code,
           host: socket,
+          hostToken,
           guests: new Set(),
           content: null,
           playback: null,
@@ -129,7 +161,27 @@ function onConnection(socket: WebSocket): void {
         });
         role = 'host';
         roomCode = code;
-        deliver(socket, { t: 'created', room: code });
+        deliver(socket, { t: 'created', room: code, hostToken });
+        break;
+      }
+
+      // Reclaims an existing room after the host's own connection drops and
+      // reconnects — same code, same content/queue/playback, rather than a
+      // blip permanently orphaning the room (guests would otherwise get
+      // 'host_left' and the session would just be over).
+      case 'rejoin_host': {
+        const code = String(msg.room ?? '').toUpperCase();
+        const target = rooms.get(code);
+        if (!target || target.hostToken !== msg.token) {
+          deliver(socket, { t: 'error', error: 'no_room' });
+          return;
+        }
+        role = 'host';
+        roomCode = code;
+        target.host = socket;
+        target.touchedAt = Date.now();
+        deliver(socket, { t: 'created', room: code, hostToken: target.hostToken, resumed: true });
+        broadcastPeers(target);
         break;
       }
 
@@ -168,20 +220,12 @@ function onConnection(socket: WebSocket): void {
         break;
       }
 
+      // Host-only — see the file header. Guests receive and apply this but
+      // never originate it; there's no separate "guest control" message.
       case 'pb': {
         if (role !== 'host' || !room) return;
-        room.playback = { time: Number(msg.time) || 0, paused: Boolean(msg.paused) };
-        toGuests(room, { t: 'pb', time: room.playback.time, paused: room.playback.paused });
-        break;
-      }
-
-      case 'control': {
-        // Any participant may pause/resume for everyone.
-        if (!room) return;
-        room.playback = { time: Number(msg.time) || 0, paused: Boolean(msg.paused) };
-        const message = { t: 'pb', time: room.playback.time, paused: room.playback.paused };
-        deliver(room.host, message);
-        toGuests(room, message);
+        room.playback = { time: Number(msg.time) || 0, paused: Boolean(msg.paused), at: Date.now() };
+        toGuests(room, { t: 'pb', time: room.playback.time, paused: room.playback.paused, at: room.playback.at });
         break;
       }
 

@@ -27,6 +27,10 @@ export interface PlayerPageData {
   malId?: number;
   design?: 'legacy' | 'modern';
   titleOriginal?: string;
+  /** Real Anixart source id to report the episode watched under when
+   *  `sourceId` isn't a real one (AnimeLib's -1 sentinel, unknown to
+   *  Anixart's own account — see /player/progress). */
+  markWatchedSourceId?: string;
 }
 
 function escapeHtml(value: string): string {
@@ -53,6 +57,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     malId: data.malId ?? null,
     design: data.design === 'modern' ? 'modern' : 'legacy',
     titleOriginal: data.titleOriginal || '',
+    markWatchedSourceId: data.markWatchedSourceId || null,
   });
   const safeTitle = escapeHtml(data.title);
   const safeSub = escapeHtml(data.subtitle || '');
@@ -97,6 +102,12 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .progress-saved.visible { display: block; }
     .progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; margin-top: -6px; background: #fff; border-radius: 50%; transform: translateX(-50%) scale(0); transition: transform 0.15s cubic-bezier(.34,1.4,.64,1); z-index: 4; box-shadow: 0 0 0 3px rgba(196,165,253,0.3), 0 2px 8px rgba(0,0,0,0.4); }
     .progress-wrap:hover .progress-thumb { transform: translateX(-50%) scale(1); }
+    /* Watch Together: guest can't drive playback — dim the controls that would
+       otherwise suggest they can. Clicks still fire (togglePlay/seekBy/
+       seekToRatio show a toast instead of silently doing nothing), so this
+       stays a visual cue, not a hard disable. */
+    body.wt-locked #progress-wrap, body.wt-locked #m-progress-wrap, body.wt-locked #md-track { opacity: 0.5; cursor: not-allowed; }
+    body.wt-locked #btn-play, body.wt-locked #m-play, body.wt-locked #md-play { opacity: 0.4; }
     .pill-wrap { display: flex; flex-direction: column; align-items: stretch; background: linear-gradient(180deg, rgba(17,13,27,0.86), rgba(10,8,17,0.86)); backdrop-filter: blur(24px) saturate(1.6); -webkit-backdrop-filter: blur(24px) saturate(1.6); border: 1px solid rgba(255,255,255,0.09); border-radius: 22px; padding: 9px 15px 7px; box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06); gap: 4px; transition: border-color 0.2s; }
     .pill-wrap:hover { border-color: rgba(196,165,253,0.22); }
     .ctrl-row { display: flex; align-items: center; gap: 2px; }
@@ -953,12 +964,25 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function setLoader(on){loader.classList.toggle("visible",on);}
       function showError(msg){errorPanel.textContent=msg;errorPanel.classList.add("visible");setLoader(false);}
       function updatePlayUi(){const playing=!video.paused&&!video.ended;bigPlay.classList.toggle("visible",!playing);iconPlay.style.display=playing?"none":"block";iconPause.style.display=playing?"block":"none";mIconPlay.style.display=playing?"none":"block";mIconPause.style.display=playing?"block":"none";document.body.classList.toggle("md-playing",playing);mdIconPlay.style.display=playing?"none":"block";mdIconPause.style.display=playing?"block":"none";mdIconPlay2.style.display=playing?"none":"block";mdIconPause2.style.display=playing?"block":"none";}
-      function togglePlay(){if(video.paused||video.ended)video.play().catch(()=>{});else video.pause();}
+      // Watch Together: only the host drives playback (see features/together.ts).
+      // wtRole is set by the 'role' postMessage from the React host; inRoom
+      // (declared further down, set by the 'meta' message) is reused as-is —
+      // both are only ever read once a control is actually clicked, by which
+      // point the whole script has finished its initial run, so the forward
+      // reference is safe. Gating here, inside the functions every play/
+      // pause/seek path already funnels through (buttons, keyboard shortcuts,
+      // drag-seek alike) covers all of them at once instead of disabling each
+      // control individually across the mobile/desktop/Modern markup. A guest
+      // tapping a locked control gets a toast, not silence.
+      var wtRole=null;
+      function wtGuestLocked(){return wtRole==="guest"&&inRoom;}
+      function wtDenyToast(){showShot("Только хост управляет воспроизведением");}
+      function togglePlay(){if(wtGuestLocked()){wtDenyToast();return;}if(video.paused||video.ended)video.play().catch(()=>{});else video.pause();}
       function updateProgress(){const d=(!isNaN(video.duration)&&video.duration)?video.duration:0,t=video.currentTime||0,played=pct(t,d),buf=video.buffered.length?pct(video.buffered.end(video.buffered.length-1),d):0;progressPlayed.style.width=played+"%";progressBuffer.style.width=buf+"%";progressThumb.style.left=played+"%";timeCur.textContent=fmt(t);timeDur.textContent=d?fmt(d):"--:--";if(savedMarkerPct>1){progressSaved.style.left=savedMarkerPct+"%";progressSaved.classList.add("visible");}mProgressPlayed.style.width=played+"%";mProgressBuffer.style.width=buf+"%";mProgressThumb.style.left=played+"%";mTimeCur.textContent=fmt(t);mTimeDur.textContent=d?fmt(d):"--:--";mdPlayed.style.width=played+"%";mdBuf.style.width=buf+"%";mdThumb.style.left=played+"%";mdTimeCur.textContent=fmt(t);mdTimeDur.textContent=d?fmt(d):"--:--";if(savedMarkerPct>1){mdMarker.style.left=savedMarkerPct+"%";mdMarker.classList.add("show");}}
-      function seekBy(delta){const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;video.currentTime=Math.min(d||Infinity,Math.max(0,(video.currentTime||0)+delta));updateProgress();showOverlay();}
-      function seekToRatio(r){const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(!d)return;video.currentTime=d*Math.min(1,Math.max(0,r));updateProgress();}
+      function seekBy(delta){if(wtGuestLocked()){wtDenyToast();return;}const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;video.currentTime=Math.min(d||Infinity,Math.max(0,(video.currentTime||0)+delta));updateProgress();showOverlay();}
+      function seekToRatio(r){if(wtGuestLocked()){wtDenyToast();return;}const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(!d)return;video.currentTime=d*Math.min(1,Math.max(0,r));updateProgress();}
       function flashSaved(){savedBadge.classList.add("visible");if(savedBadgeTimer)clearTimeout(savedBadgeTimer);savedBadgeTimer=setTimeout(()=>savedBadge.classList.remove("visible"),1800);}
-      function saveProgress(force){const t=video.currentTime||0;if(t<1&&!force)return;const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(d>0)savedMarkerPct=Math.min(100,t/d*100);const payload={releaseId:CONFIG.releaseId,sourceId:CONFIG.sourceId,episodePosition:CONFIG.episodePosition,time:t,duration:d,title:${JSON.stringify(safeTitle)}};try{localStorage.setItem("miraihub:"+CONFIG.progressKey,JSON.stringify(payload));}catch{}const send=()=>{fetch("/api/v1/player/progress",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(CONFIG.token?{...payload,token:CONFIG.token}:payload),keepalive:true}).catch(()=>{});};if(force){if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}send();return;}if(saveTimer)return;saveTimer=setTimeout(()=>{saveTimer=null;send();},3000);}
+      function saveProgress(force){const t=video.currentTime||0;if(t<1&&!force)return;const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(d>0)savedMarkerPct=Math.min(100,t/d*100);const payload={releaseId:CONFIG.releaseId,sourceId:CONFIG.sourceId,episodePosition:CONFIG.episodePosition,time:t,duration:d,title:${JSON.stringify(safeTitle)},markWatchedSourceId:CONFIG.markWatchedSourceId||undefined};try{localStorage.setItem("miraihub:"+CONFIG.progressKey,JSON.stringify(payload));}catch{}const send=()=>{fetch("/api/v1/player/progress",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(CONFIG.token?{...payload,token:CONFIG.token}:payload),keepalive:true}).catch(()=>{});};if(force){if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}send();return;}if(saveTimer)return;saveTimer=setTimeout(()=>{saveTimer=null;send();},3000);}
       function applyResume(){if(resumed||pendingResume<15)return;if(video.duration&&pendingResume>=video.duration-30){pendingResume=0;return;}resumed=true;video.currentTime=pendingResume;video.play().catch(()=>{});resumeText.textContent="Продолжено с "+fmt(pendingResume);resumeToast.classList.add("visible");setTimeout(()=>resumeToast.classList.remove("visible"),3500);}
       if(pendingResume>=15){resumeBtn.onclick=()=>{resumed=true;video.currentTime=pendingResume;resumeToast.classList.remove("visible");video.play().catch(()=>{});};resumeSkip.onclick=()=>{resumed=true;pendingResume=0;video.currentTime=0;resumeToast.classList.remove("visible");saveProgress(true);};}
       function findQuality(label){return CONFIG.qualities.find(q=>q.label===label)||CONFIG.qualities[0];}
@@ -1287,7 +1311,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       buildMobileSpeedList();
       let hasNext=false,hasPrev=false,inRoom=false;
       const mPrev=document.getElementById("m-prev"),mNext=document.getElementById("m-next"),dNext=document.getElementById("d-next"),dQueue=document.getElementById("d-queue"),mQueue=document.getElementById("m-queue"),dTogether=document.getElementById("d-together"),mTogether=document.getElementById("m-together");
-      function reflectNav(){if(mPrev)mPrev.disabled=!hasPrev;if(mNext)mNext.disabled=!hasNext;if(dNext)dNext.hidden=!hasNext;if(dQueue)dQueue.hidden=!inRoom;if(mQueue)mQueue.hidden=!inRoom;const tl=inRoom?"● Комната открыта":"👥 Смотреть вместе";if(mTogether)mTogether.textContent=tl;if(dTogether)dTogether.textContent=inRoom?"● Комната":"👥 Вместе";mdPrev.classList.toggle("md-nav-off",!hasPrev);mdNext.classList.toggle("md-nav-off",!hasNext);mdWt.textContent=inRoom?"● Комната":"👥 Вместе";mdWt.classList.toggle("on",inRoom);if(mdQueue)mdQueue.style.display=inRoom?"":"none";}
+      function reflectNav(){if(mPrev)mPrev.disabled=!hasPrev;if(mNext)mNext.disabled=!hasNext;if(dNext)dNext.hidden=!hasNext;if(dQueue)dQueue.hidden=!inRoom;if(mQueue)mQueue.hidden=!inRoom;const tl=inRoom?"● Комната открыта":"👥 Смотреть вместе";if(mTogether)mTogether.textContent=tl;if(dTogether)dTogether.textContent=inRoom?"● Комната":"👥 Вместе";mdPrev.classList.toggle("md-nav-off",!hasPrev);mdNext.classList.toggle("md-nav-off",!hasNext);mdWt.textContent=inRoom?"● Комната":"👥 Вместе";mdWt.classList.toggle("on",inRoom);if(mdQueue)mdQueue.style.display=inRoom?"":"none";document.body.classList.toggle("wt-locked",wtGuestLocked());}
       reflectNav();
       window.addEventListener("message",function(e){var d=e.data;if(!d||typeof d!=="object"||d.__wt!=="meta")return;if(typeof d.hasNext==="boolean")hasNext=d.hasNext;if(typeof d.hasPrev==="boolean")hasPrev=d.hasPrev;inRoom=!!d.roomCode;reflectNav();});
       function bindNav(id,action){const el=document.getElementById(id);if(el)el.addEventListener("click",function(ev){ev.stopPropagation();playerMsg(action);showOverlay();});}
@@ -1427,10 +1451,18 @@ export function buildPlayerPage(data: PlayerPageData): string {
       }
 
       // ── Watch Together bridge (sync via postMessage) ──
-      // Host is the TIME authority (heartbeat/seek). Pause/resume can be issued
-      // by anyone (host via "state", guests via "control") and applies to all.
+      // Host alone is the time authority — plays/pauses/seeks and periodic
+      // heartbeats. Guests only ever apply incoming state; togglePlay/seekBy/
+      // seekToRatio already refuse to run for a locked guest (see wtGuestLocked
+      // above), so nothing here needs to re-check that. wtRole itself is the
+      // shared var declared up near togglePlay — assigning it here (no var
+      // keyword) is what makes wtGuestLocked() see role changes; redeclaring
+      // it in this scope would shadow it instead and silently break the lock.
+      // React already compensates the incoming time value for however long the
+      // message spent in flight (see PlayerPage's onPlayback) — this side just
+      // applies whatever it's given.
       (function(){
-        var wtRole=null,wtLastEmit=0,wtApplyUntil=0;
+        var wtLastEmit=0;
         function emitState(force){ // host only: time + paused
           if(wtRole!=="host")return;
           var now=Date.now();
@@ -1438,16 +1470,10 @@ export function buildPlayerPage(data: PlayerPageData): string {
           wtLastEmit=now;
           try{parent.postMessage({__wt:"state",time:video.currentTime||0,paused:video.paused},"*");}catch(e){}
         }
-        function emitControl(){ // guest only: pause/resume command
-          if(wtRole!=="guest")return;
-          if(Date.now()<wtApplyUntil)return; // suppress echo of a programmatic change
-          try{parent.postMessage({__wt:"control",time:video.currentTime||0,paused:video.paused},"*");}catch(e){}
-        }
         window.addEventListener("message",function(e){
           var d=e.data;if(!d||typeof d!=="object")return;
-          if(d.__wt==="role"){wtRole=d.role;return;}
-          if(d.__wt==="apply"){ // both host and guest apply incoming state
-            wtApplyUntil=Date.now()+400;
+          if(d.__wt==="role"){wtRole=d.role;reflectNav();return;}
+          if(d.__wt==="apply"){ // guest applies host-driven state
             var t=Number(d.time)||0;
             if(Math.abs((video.currentTime||0)-t)>0.75){try{video.currentTime=t;}catch(e){}}
             if(d.paused&&!video.paused)video.pause();
@@ -1455,8 +1481,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
             return;
           }
         });
-        video.addEventListener("play",function(){emitState(true);emitControl();});
-        video.addEventListener("pause",function(){emitState(true);emitControl();});
+        video.addEventListener("play",function(){emitState(true);});
+        video.addEventListener("pause",function(){emitState(true);});
         video.addEventListener("seeked",function(){emitState(true);}); // host-only time authority
         video.addEventListener("ended",function(){if(wtRole==="host"){try{parent.postMessage({__wt:"ended"},"*");}catch(e){}}});
         video.addEventListener("timeupdate",function(){emitState(false);});
