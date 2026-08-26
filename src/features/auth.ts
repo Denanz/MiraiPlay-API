@@ -3,6 +3,9 @@ import { upstreamJson } from '../upstream/client.js';
 import { denylist, isLocalIp, trimIp } from '../services/blocklist.js';
 import { telemetry } from '../services/monitor.js';
 import { htmlEscape, notify, type TgButton } from '../services/notifier.js';
+import { hubUserFromCookie, bindAnixart } from '../services/mirai-auth.js';
+import { getLinkedAccount, linkAccount, unlinkAccount } from '../services/linked-accounts.js';
+import { resolveUserId } from '../services/identity.js';
 
 /**
  * Sign-in interception. We relay credentials to the upstream API verbatim, but
@@ -81,7 +84,80 @@ async function announceLogin(
   await notify(lines.join('\n'), buttons);
 }
 
+/**
+ * Единый вход: связка аккаунта Mirai с сессией Anixart.
+ *
+ * Кука `mirai_session` выдана на весь `.denanz.fun`, поэтому долетает и до
+ * API-поддомена — но только с `credentials: 'include'` на стороне фронта, так
+ * как origin у него другой (см. CORS в app.ts). В APK этого не происходит:
+ * приложение живёт на `capacitor://localhost`, куки домена там просто нет, и
+ * вход остаётся по Anixart.
+ */
+function registerMiraiLink(scope: FastifyInstance): void {
+  scope.get('/auth/mirai/status', async (req: FastifyRequest, reply: FastifyReply) => {
+    const hubUserId = await hubUserFromCookie(req.headers.cookie);
+    if (hubUserId === null) return reply.send({ available: false, linked: false });
+    const linked = getLinkedAccount(hubUserId);
+    return reply.send({
+      available: true,
+      linked: !!linked,
+      login: linked?.login ?? null,
+      linkedAt: linked?.linkedAt ?? null,
+    });
+  });
+
+  scope.post('/auth/mirai/link', async (req: FastifyRequest, reply: FastifyReply) => {
+    const hubUserId = await hubUserFromCookie(req.headers.cookie);
+    if (hubUserId === null) return reply.code(401).send({ error: 'no_mirai_session' });
+
+    const q = req.query as Record<string, unknown>;
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const token = typeof q.token === 'string' ? q.token : typeof b.token === 'string' ? b.token : '';
+    if (!token) return reply.code(400).send({ error: 'missing_token' });
+
+    // Личность берём у upstream по самому токену, а не со слов клиента: иначе
+    // привязать к своей учётке можно было бы любой присланный id.
+    const userId = await resolveUserId(token);
+    if (!userId) return reply.code(401).send({ error: 'invalid_token' });
+    const owner = denylist.getOwner(token);
+
+    linkAccount(hubUserId, { token, userId, login: owner?.login ?? String(userId) });
+    await bindAnixart(hubUserId, userId);
+    return reply.send({ ok: true, login: owner?.login ?? String(userId) });
+  });
+
+  scope.post('/auth/mirai/unlink', async (req: FastifyRequest, reply: FastifyReply) => {
+    const hubUserId = await hubUserFromCookie(req.headers.cookie);
+    if (hubUserId === null) return reply.code(401).send({ error: 'no_mirai_session' });
+    unlinkAccount(hubUserId);
+    return reply.send({ ok: true });
+  });
+
+  // Автовход: отдаёт сохранённую сессию Anixart предъявителю куки Mirai.
+  scope.get('/auth/mirai/session', async (req: FastifyRequest, reply: FastifyReply) => {
+    const hubUserId = await hubUserFromCookie(req.headers.cookie);
+    if (hubUserId === null) return reply.code(401).send({ error: 'no_mirai_session' });
+    const linked = getLinkedAccount(hubUserId);
+    if (!linked) return reply.code(404).send({ error: 'not_linked' });
+
+    // Токен Anixart живёт долго, но не вечно. Протухший лучше убрать сразу,
+    // чем отдать фронту сессию, которая молча не работает.
+    const stillValid = await resolveUserId(linked.token);
+    if (!stillValid) {
+      unlinkAccount(hubUserId);
+      return reply.code(410).send({ error: 'token_expired' });
+    }
+
+    if (denylist.accountBlocked(linked.userId, linked.login)) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    return reply.send({ token: linked.token, userId: linked.userId, login: linked.login });
+  });
+}
+
 export function registerAuth(scope: FastifyInstance): void {
+  registerMiraiLink(scope);
+
   scope.post('/auth/signIn', async (req: FastifyRequest, reply: FastifyReply) => {
     const { login, password } = (req.body ?? {}) as { login?: unknown; password?: unknown };
     if (!login || !password) {
