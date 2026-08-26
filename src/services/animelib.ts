@@ -52,6 +52,7 @@ const REQUEST_HEADERS = {
 
 const STORE_DIR = join(settings.STATE_DIR, 'animelib');
 const TOKENS_FILE = join(STORE_DIR, 'tokens.json');
+const REFRESH_FILE = join(STORE_DIR, 'refresh.json');
 const OVERRIDES_FILE = join(STORE_DIR, 'overrides.json');
 
 type TokenStore = Record<string, string>; // MiraiHub userId -> AnimeLib bearer token
@@ -77,6 +78,7 @@ function persist(file: string, data: unknown): void {
 }
 
 let tokens: TokenStore = loadJson(TOKENS_FILE, {});
+let refreshTokens: TokenStore = loadJson(REFRESH_FILE, {});
 let overrides: OverrideStore = loadJson(OVERRIDES_FILE, {});
 
 export function setToken(userId: number, token: string): void {
@@ -90,7 +92,18 @@ export function getToken(userId: number): string | undefined {
 
 export function clearToken(userId: number): void {
   delete tokens[String(userId)];
+  delete refreshTokens[String(userId)];
   persist(TOKENS_FILE, tokens);
+  persist(REFRESH_FILE, refreshTokens);
+}
+
+export function setRefreshToken(userId: number, token: string): void {
+  refreshTokens[String(userId)] = token;
+  persist(REFRESH_FILE, refreshTokens);
+}
+
+export function hasRefreshToken(userId: number): boolean {
+  return !!refreshTokens[String(userId)];
 }
 
 /**
@@ -108,6 +121,80 @@ export function tokenExpiresAt(token: string): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Access tokens live 31 days, so a hand-pasted one used to mean a monthly trip
+ * through DevTools — and expiry is invisible from the outside: an expired token
+ * 401s, fetchJson swallows it, and the episode just reports no native source,
+ * exactly like a title that never had one.
+ *
+ * AnimeLib's own web client (client_id 1) is a public PKCE client, so the
+ * refresh grant needs no client secret — we can renew on the user's behalf from
+ * a refresh token they paste once. Passport *rotates* on every refresh: the
+ * token we spend is revoked and a new one comes back, so server and browser
+ * can't share a chain. The user should mint ours in a private window and close
+ * it without logging out — logging out revokes the whole chain.
+ */
+const TOKEN_ENDPOINT = `${AUTH_API}/auth/oauth/token`;
+const OAUTH_CLIENT_ID = '1';
+const RENEW_MARGIN_MS = 3 * 24 * 60 * 60 * 1000;
+
+// Refreshes are serialised per user: with rotation, two concurrent refreshes
+// would race and the loser would persist an already-revoked token.
+const refreshInFlight = new Map<string, Promise<string | undefined>>();
+
+async function requestRefresh(userId: number): Promise<string | undefined> {
+  const refresh = refreshTokens[String(userId)];
+  if (!refresh) return undefined;
+  let res: Response;
+  try {
+    res = await fetch(TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { ...REQUEST_HEADERS, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        client_id: OAUTH_CLIENT_ID,
+        refresh_token: refresh,
+      }),
+    });
+  } catch {
+    return undefined; // Network blip — keep the pair and retry on the next lookup.
+  }
+  if (!res.ok) {
+    // 401 is terminal: the chain was revoked (logout) or already rotated away.
+    // Drop it so Settings can say "reconnect" instead of silently retrying.
+    if (res.status === 401) {
+      delete refreshTokens[String(userId)];
+      persist(REFRESH_FILE, refreshTokens);
+    }
+    return undefined;
+  }
+  const body = (await res.json().catch(() => null)) as
+    | { access_token?: string; refresh_token?: string }
+    | null;
+  if (!body?.access_token) return undefined;
+  setToken(userId, body.access_token);
+  if (body.refresh_token) setRefreshToken(userId, body.refresh_token);
+  return body.access_token;
+}
+
+/** The caller's access token, renewed first if it's gone (or nearly gone). */
+export async function getValidToken(userId: number): Promise<string | undefined> {
+  const current = getToken(userId);
+  const expiresAt = current ? tokenExpiresAt(current) : null;
+  const stale = !current || expiresAt === null || expiresAt - Date.now() < RENEW_MARGIN_MS;
+  if (!stale || !refreshTokens[String(userId)]) return current;
+
+  const key = String(userId);
+  let pending = refreshInFlight.get(key);
+  if (!pending) {
+    pending = requestRefresh(userId).finally(() => refreshInFlight.delete(key));
+    refreshInFlight.set(key, pending);
+  }
+  // A failed renewal falls back to the existing token: if it's merely close to
+  // expiry it still works, and if it's dead the caller degrades as before.
+  return (await pending) ?? current;
 }
 
 export function setOverride(releaseId: string, animeId: number): void {
@@ -403,7 +490,7 @@ export async function lookupAnimelib(
   episodeNumber: number,
   titles: { orig?: string; ru?: string; en?: string },
 ): Promise<AnimelibLookupResult> {
-  const token = getToken(userId);
+  const token = await getValidToken(userId);
   if (!token) return { found: false, reason: 'no_token' };
 
   const found = await resolveEpisodeId(releaseId, episodeNumber, token, titles);
@@ -451,7 +538,7 @@ export async function listAnimelibTeams(
   releaseId: string,
   titles: { orig?: string; ru?: string; en?: string },
 ): Promise<AnimelibTeamsResult> {
-  const token = getToken(userId);
+  const token = await getValidToken(userId);
   if (!token) return { found: false, reason: 'no_token' };
 
   const animeId = await findAnimeId(releaseId, token, titles).catch(() => null);
@@ -489,7 +576,7 @@ export async function resolveAnimelibTeam(
   team: string,
   titles: { orig?: string; ru?: string; en?: string },
 ): Promise<AnimelibLookupResult> {
-  const token = getToken(userId);
+  const token = await getValidToken(userId);
   if (!token) return { found: false, reason: 'no_token' };
 
   const found = await resolveEpisodeId(releaseId, episodeNumber, token, titles);

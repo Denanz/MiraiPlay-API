@@ -4,6 +4,8 @@ import { resolveUserId } from '../services/identity.js';
 import {
   setToken,
   getToken,
+  setRefreshToken,
+  hasRefreshToken,
   clearToken,
   tokenExpiresAt,
   setOverride,
@@ -27,13 +29,20 @@ export function registerAnimelib(scope: FastifyInstance): void {
   scope.post('/animelib/token', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
-    const { animelibToken } = (req.body ?? {}) as Record<string, unknown>;
+    const { animelibToken, animelibRefreshToken } = (req.body ?? {}) as Record<string, unknown>;
     const clean = typeof animelibToken === 'string' ? animelibToken.trim() : '';
     if (!clean) return reply.code(400).send({ error: 'missing_token' });
     const userId = await resolveUserId(token);
     if (!userId) return reply.code(401).send({ error: 'unknown_account' });
     setToken(userId, clean);
-    return reply.send({ ok: true, expiresAt: tokenExpiresAt(clean) });
+    // Optional: with it we renew the 31-day token ourselves from here on.
+    const refresh = typeof animelibRefreshToken === 'string' ? animelibRefreshToken.trim() : '';
+    if (refresh) setRefreshToken(userId, refresh);
+    return reply.send({
+      ok: true,
+      expiresAt: tokenExpiresAt(clean),
+      autoRenew: hasRefreshToken(userId),
+    });
   });
 
   scope.get('/animelib/status', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -41,7 +50,11 @@ export function registerAnimelib(scope: FastifyInstance): void {
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     const userId = await resolveUserId(token);
     const saved = userId ? getToken(userId) : undefined;
-    return reply.send({ connected: !!saved, expiresAt: saved ? tokenExpiresAt(saved) : null });
+    return reply.send({
+      connected: !!saved,
+      expiresAt: saved ? tokenExpiresAt(saved) : null,
+      autoRenew: userId ? hasRefreshToken(userId) : false,
+    });
   });
 
   scope.post('/animelib/disconnect', async (req: FastifyRequest, reply: FastifyReply) => {
