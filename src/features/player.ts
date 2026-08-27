@@ -104,7 +104,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     }
 
     let playback;
-    // AnimeLib chosen as the source up front (WatchPage's "Источник" picker) —
+    // Источником сразу выбран AnimeLib — тогда
     // качества берём прямо из аккаунта зрителя на AnimeLib, минуя резолв
     // ссылок Kodik и AniLibria.
     if (animelibTeam) {
@@ -145,7 +145,7 @@ export function registerPlayer(scope: FastifyInstance): void {
 
     // Ищем MAL ID для Aniskip, бюджет 1.5с, повторные попадают в кэш.
     // Только по чистому названию релиза: `subtitle` — это «озвучка · источник ·
-    // серия N" — feeding that to Shikimori matches garbage (e.g. it returns the
+    // серия N», и по такой строке Shikimori находит мусор — например,
     // номер серии в хвосте уводит поиск на чужой тайтл, и таймкоды приедут не те.
     // `origTitle` — необязательный запасной вариант с оригинальным названием.
     const malId = q.malId

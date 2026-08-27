@@ -75,7 +75,7 @@ export function registerAnimelib(scope: FastifyInstance): void {
     return reply.send({ ok: true });
   });
 
-  // Full team list for the "Источник" picker on the episode-selection screen —
+  // Полный список команд для выбора «Источника» на экране серий.
   // В отличие от /animelib/episode ниже, который выбирает одну лучшую озвучку.
   scope.get('/animelib/teams', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);

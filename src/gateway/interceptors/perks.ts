@@ -12,7 +12,7 @@ import sponsorLabelTable from '../../data/sponsor_labels.json';
 
 const verifiedIds = new Set((verifiedList as Array<number | string>).map(String));
 const roleGrants = roleTable as Record<string, Array<{ name: string; color: string }>>;
-// Per-account override for the "Спонсор" caption: one or more custom badge texts.
+// Своя подпись вместо «Спонсор» для конкретных аккаунтов.
 const sponsorLabels = sponsorLabelTable as Record<string, string | string[]>;
 
 function labelsFor(id: string): string[] | undefined {

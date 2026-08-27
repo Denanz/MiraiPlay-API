@@ -340,7 +340,7 @@ function absoluteVideoUrl(href: string): string {
   return `https://${VIDEO_HOST}${CDN_PATH_PREFIX}${path}`;
 }
 
-/** Same name a team would show under in the Anixart-style "Озвучка" list —
+/** То же имя, под которым команда показалась бы в списке «Озвучка» —
  *  используется и при перечислении команд, и при обратном поиске выбранной,
  *  поэтому они не разъезжаются. */
 function dubDisplayName(p: RawPlayer): string {
