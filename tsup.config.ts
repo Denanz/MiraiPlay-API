@@ -7,7 +7,7 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: true,
-  // Keep npm deps external (Fastify & co. don't bundle cleanly); local JSON data
-  // files are still inlined by esbuild.
+  // Пакеты из npm оставляем внешними — Fastify и компания плохо собираются в
+  // бандл. Локальные JSON esbuild всё равно вшивает.
   skipNodeModulesBundle: true,
 });
