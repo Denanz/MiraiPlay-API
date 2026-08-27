@@ -4,11 +4,10 @@ import verifiedList from '../../data/verified.json';
 import sponsorLabelTable from '../../data/sponsor_labels.json';
 
 /**
- * Response rewriters that grant cosmetic perks: global premium, optional
- * verified badge and extra roles for specific accounts.
+ * Правка ответов ради косметики: глобальный премиум, галочка и дополнительные
+ * роли отдельным аккаунтам.
  *
- * Field names (is_sponsor, sponsorshipExpires, ...) follow the upstream API
- * schema — they are a data contract, not styling choices.
+ * Имена полей повторяют схему upstream API — это контракт данных, а не наш выбор.
  */
 
 const verifiedIds = new Set((verifiedList as Array<number | string>).map(String));
@@ -40,7 +39,7 @@ function decorate(profile: Record<string, any>): void {
   }
 }
 
-/** GET /profile/:id — perks live under `data.profile`. */
+/** GET /profile/:id — плюшки лежат в `data.profile`. */
 export function decorateProfileCard(data: any): any {
   if (data && typeof data.profile === 'object' && data.profile) {
     decorate(data.profile);
@@ -48,7 +47,7 @@ export function decorateProfileCard(data: any): any {
   return data;
 }
 
-/** GET /profile/info — the current user's flags sit at the top level. */
+/** GET /profile/info — флаги текущего пользователя на верхнем уровне. */
 export function decorateProfileInfo(data: any): any {
   if (data && typeof data === 'object') {
     data.is_sponsor = true;

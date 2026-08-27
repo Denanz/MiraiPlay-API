@@ -3,9 +3,9 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * Personal per-anime diary: a free-text review + optional 1–10 score, one entry
- * per release. Bucketed by an HMAC of the user's token (like ratings/notes) so
- * it's private and cross-device.
+ * Личный дневник по тайтлам: свободный текст и необязательная оценка 1–10, одна
+ * запись на релиз. Адресуется bucket'ом, как оценки и заметки, поэтому приватен
+ * и доступен с любого устройства.
  */
 
 

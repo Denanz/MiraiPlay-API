@@ -3,40 +3,16 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * AnimeLib native-player integration ("Animelib" dub type — a distinct backend
- * from the Kodik link every dub also carries, hosted on AnimeLib's own CDN with
- * genuine 1080p encodes where Kodik regularly caps at 720p).
+ * Собственный плеер AnimeLib — честные 1080p там, где Kodik упирается в 720p.
  *
- * Three things make this fundamentally different from kodik.ts/anilibria.ts:
+ * Каталог у AnimeLib свой, с Anixart не пересекается: тайтл ищем по названию,
+ * ручной пин releaseId → animeId лежит запасным вариантом (см. setOverride).
+ * Поиск и запрос эпизода идут от имени того, кто смотрит: анониму приходит
+ * `src: null`, а лицензированные тайтлы поиск молча прячет.
  *
- * 1. Per-user auth. The video URL only appears in the episode response when the
- *    request carries a valid AnimeLib account Bearer token — anonymous requests
- *    see the same player listed with `src: null`. There's no app-wide service
- *    account to use instead; each MiraiHub user who wants this must paste their
- *    own token (extracted from their own logged-in browser session — AnimeLib
- *    has no public OAuth app registration to do this properly).
- *
- * 2. No shared catalog with Anixart. AnimeLib is a wholly separate catalog
- *    with its own anime/episode ids, matched here by title search. That
- *    search silently excludes licensed titles (exactly the ones with real
- *    1080p) *when called anonymously* — the same query with the caller's own
- *    `Authorization: Bearer` header returns the full catalog, specials
- *    included (confirmed directly: anonymous search for a licensed title
- *    returns 1 result, authenticated returns 5, including the real season).
- *    So search runs authenticated as whichever user is looking, using their
- *    own token — no shared/service account, so one account's ban or
- *    expiry can't take AnimeLib down for everyone. A manual releaseId →
- *    animeId override (see setOverride/getOverride) still exists as a
- *    fallback for whatever search still gets wrong (ambiguous titles, a
- *    user with no token yet) — global, not per-user, so one correct pin
- *    covers everyone regardless of whether search would've found it.
- *
- * 3. The video file itself needs no token. DDoS-Guard in front of the CDN gates
- *    on Referer/Origin, not caller identity — so the token is only spent on the
- *    one authenticated lookup that reveals the URL; relaying the actual bytes
- *    (see features/animelib.ts's /animelib/stream) never touches it again.
+ * На сами байты видео токен не нужен — DDoS-Guard перед CDN смотрит на
+ * Referer и Origin, а не на того, кто пришёл (см. /animelib/stream).
  */
-
 const CATALOG_API = 'https://api.cdnlibs.org/api'; // public, unauthenticated search/listing
 const AUTH_API = 'https://hapi.hentaicdn.org/api'; // authenticated episode/player detail
 const VIDEO_HOST = 'video1.cdnlibs.org';
@@ -63,7 +39,7 @@ function loadJson<T>(file: string, fallback: T): T {
     const parsed = JSON.parse(readFileSync(file, 'utf8')) as T;
     if (parsed && typeof parsed === 'object') return parsed;
   } catch {
-    // No file yet.
+    // Файла ещё нет.
   }
   return fallback;
 }
@@ -73,7 +49,7 @@ function persist(file: string, data: unknown): void {
     mkdirSync(STORE_DIR, { recursive: true });
     writeFileSync(file, JSON.stringify(data, null, 2));
   } catch {
-    // In-memory state still works until the next restart.
+    // В памяти состояние живёт до перезапуска.
   }
 }
 
@@ -107,10 +83,8 @@ export function hasRefreshToken(userId: number): boolean {
 }
 
 /**
- * Unix-ms expiry read straight from the JWT payload — display only. We're not
- * the token's audience (AnimeLib is), so there's nothing for us to verify;
- * this just lets Settings show "истекает через N дней" instead of the user
- * finding out the hard way when playback stops working.
+ * Срок жизни токена прямо из payload JWT, только для показа. Проверять подпись
+ * нам нечем и незачем — аудитория токена не мы, а AnimeLib.
  */
 export function tokenExpiresAt(token: string): number | null {
   try {
@@ -124,24 +98,19 @@ export function tokenExpiresAt(token: string): number | null {
 }
 
 /**
- * Access tokens live 31 days, so a hand-pasted one used to mean a monthly trip
- * through DevTools — and expiry is invisible from the outside: an expired token
- * 401s, fetchJson swallows it, and the episode just reports no native source,
- * exactly like a title that never had one.
+ * Access живёт 31 день, и его истечение снаружи невидимо: 401 глотается, эпизод
+ * отвечает «нет своего источника» — как тайтл, у которого плеера и не было.
  *
- * AnimeLib's own web client (client_id 1) is a public PKCE client, so the
- * refresh grant needs no client secret — we can renew on the user's behalf from
- * a refresh token they paste once. Passport *rotates* on every refresh: the
- * token we spend is revoked and a new one comes back, so server and browser
- * can't share a chain. The user should mint ours in a private window and close
- * it without logging out — logging out revokes the whole chain.
+ * Клиент AnimeLib публичный, с PKCE и без секрета, поэтому refresh-грант
+ * доступен и нам. Passport ротирует токены при обмене, так что сервер и браузер
+ * не могут делить одну цепочку, а «Выйти» отзывает её целиком.
  */
 const TOKEN_ENDPOINT = `${AUTH_API}/auth/oauth/token`;
 const OAUTH_CLIENT_ID = '1';
 const RENEW_MARGIN_MS = 3 * 24 * 60 * 60 * 1000;
 
-// Refreshes are serialised per user: with rotation, two concurrent refreshes
-// would race and the loser would persist an already-revoked token.
+// Обновления сериализованы по пользователю: при ротации две параллельные
+// попытки затрут друг друга уже отозванным токеном.
 const refreshInFlight = new Map<string, Promise<string | undefined>>();
 
 async function requestRefresh(userId: number): Promise<string | undefined> {
@@ -162,8 +131,8 @@ async function requestRefresh(userId: number): Promise<string | undefined> {
     return undefined; // Network blip — keep the pair and retry on the next lookup.
   }
   if (!res.ok) {
-    // 401 is terminal: the chain was revoked (logout) or already rotated away.
-    // Drop it so Settings can say "reconnect" instead of silently retrying.
+    // 401 окончателен: цепочку отозвали разлогином или она уже провернулась.
+    // Убираем, чтобы не долбиться в заведомо мёртвый токен.
     if (res.status === 401) {
       delete refreshTokens[String(userId)];
       persist(REFRESH_FILE, refreshTokens);
@@ -179,7 +148,7 @@ async function requestRefresh(userId: number): Promise<string | undefined> {
   return body.access_token;
 }
 
-/** The caller's access token, renewed first if it's gone (or nearly gone). */
+/** Access-токен пользователя, при необходимости сначала продлённый. */
 export async function getValidToken(userId: number): Promise<string | undefined> {
   const current = getToken(userId);
   const expiresAt = current ? tokenExpiresAt(current) : null;
@@ -192,8 +161,8 @@ export async function getValidToken(userId: number): Promise<string | undefined>
     pending = requestRefresh(userId).finally(() => refreshInFlight.delete(key));
     refreshInFlight.set(key, pending);
   }
-  // A failed renewal falls back to the existing token: if it's merely close to
-  // expiry it still works, and if it's dead the caller degrades as before.
+  // Если обновить не вышло, отдаём что есть: близкий к истечению ещё работает,
+  // а мёртвый деградирует так же, как раньше.
   return (await pending) ?? current;
 }
 
@@ -210,30 +179,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Shared (not per-user) cache for every AnimeLib network call — search,
-// episode rosters, per-episode dub details. Safe to share across users: an
-// authenticated response's *content* isn't personalized by which account
-// asked, only gated on whether the request was authenticated at all (see the
-// file-level doc comment).
+// Кэш общий на всех, не по пользователям: содержимое ответа не зависит от того,
+// чей токен спрашивал, — важно лишь, что запрос был авторизован.
 //
-// No TTL — entries live for the process's lifetime, and that lifetime is
-// already bounded from outside: /usr/local/bin/weekly-maintenance.sh (cron,
-// Sunday 00:00 UTC) does a full `apt upgrade && reboot`, which restarts every
-// container including this one. That's a better staleness bound than any
-// fixed TTL picked by hand — a currently-airing show's new episode is at most
-// a week from showing up, with no time-tracking code needed at all. Only
-// meaningfully non-empty results get cached: caching an empty/failed result
-// would freeze a transient blip into a false negative until the next reboot,
-// defeating the retry logic those blips already get elsewhere in this file.
+// TTL нет: контейнер и так перезапускается еженедельным обслуживанием, и это
+// лучшая граница свежести, чем выбранное на глаз число. Кэшируем только
+// непустые результаты — иначе разовый сбой замёрзнет как ложное «ничего нет».
 
-// AnimeLib's edge (behind DDoS-Guard) occasionally drops a connection or
-// times out for a request that succeeds moments later — observed directly
-// while debugging this file more than once, including a blip that outlasted
-// a single retry. Without retrying, that gets reported as "title not found" /
-// "no native player" — indistinguishable from the title genuinely lacking
-// one. Three attempts with growing backoff absorbs that class of flake; a
-// real 4xx (title/episode truly doesn't exist) still fails immediately since
-// retrying wouldn't change it.
+// Край AnimeLib за DDoS-Guard иногда рвёт соединение на запросе, который через
+// мгновение проходит. Без ретраев это выглядит как «тайтл не найден». Три попытки
+// с растущей паузой их поглощают; честный 4xx падает сразу, повтор его не изменит.
 async function fetchJson<T>(url: string | URL, headers: Record<string, string>, attempts = 3): Promise<T | null> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const last = attempt === attempts - 1;
@@ -265,22 +220,16 @@ interface AnimeSearchResult {
 }
 
 // type.id 0 ("Неизвестный") is what AnimeLib gives specials/interludes/omake
-// content (a "Kanwa" side story, a recap, etc.) — search ranks these above the
-// real season they're attached to often enough to matter. A short interlude
-// happening to have an episode 1 made this fail silently rather than loudly:
-// matching one meant episode 1 "worked" while every later episode 404'd,
-// which looks like a per-episode bug rather than what it actually was — the
-// wrong anime_id entirely. Filtering these out trades a silent wrong match
-// for an honest "title_not_found" (which still has the override fallback).
+// Побочные материалы — рекапы, интерлюдии — поиск нередко ставит выше настоящего
+// сезона. У короткой интерлюдии тоже есть серия 1, поэтому промах выглядел как
+// баг конкретной серии, хотя был выбран не тот тайтл целиком. Лучше честный
+// title_not_found, у него есть запасной ручной пин.
 function isRealSeries(r: AnimeSearchResult): boolean {
   return r.type?.id !== 0;
 }
 
-// Anonymous search silently drops licensed titles from its results; the same
-// query authenticated as a real AnimeLib account returns everything. Requires
-// a token, so this only ever runs for a user who's connected their own
-// account — there's no anonymous fallback attempt, since it would just widen
-// the anonymous 403/hidden-content gap into an inconsistent partial result.
+// Анонимный поиск молча выбрасывает лицензированные тайтлы, авторизованный
+// возвращает всё. Запасного анонимного захода нет: он дал бы частичный результат.
 const searchCache = new Map<string, AnimeSearchResult[]>();
 async function searchAnime(query: string, token: string): Promise<AnimeSearchResult[]> {
   const cached = searchCache.get(query);
@@ -321,13 +270,9 @@ export async function findAnimeId(
   if (variants.length === 0) return null;
   const wanted = new Set(variants.map(normalize));
 
-  // Each title variant is its own search — AnimeLib's own `name` field can be
-  // garbled or just not what Anixart's title_original says (seen directly:
-  // "Evangelion: 3.0+1.01 Thrice Upon a Time" returns nothing on AnimeLib —
-  // its actual entry is filed under a broken "Shin Evangelion Movie:||" —
-  // while the plain Russian title finds it immediately). Trying only the
-  // first-priority variant and giving up on an empty result missed titles
-  // that a *different* variant would have found outright.
+  // Каждый вариант названия — отдельный поиск: поле `name` у AnimeLib бывает
+  // покорёженным и не совпадает с оригинальным названием Anixart, зато находится
+  // по русскому. Одного варианта недостаточно.
   let fallback: AnimeSearchResult | null = null;
   for (const query of variants) {
     const results = await searchAnime(query, token);
@@ -344,11 +289,8 @@ interface EpisodeListItem {
   number: string;
 }
 
-// The `number` query param this endpoint accepts doesn't actually filter —
-// it always returns every episode for the anime_id, `number` and all. That
-// turns out to be useful: it's the one cheap way to get AnimeLib's real
-// episode roster, which is what makes matching by number reliable at all
-// (see listAnimelibTeams below for why that matters).
+// Параметр `number` у этой ручки ничего не фильтрует — она всегда отдаёт все
+// серии. Это и удобно: единственный дешёвый способ узнать настоящий список серий.
 const episodesCache = new Map<string, EpisodeListItem[]>();
 async function listEpisodes(animeId: number): Promise<EpisodeListItem[]> {
   const key = String(animeId);
@@ -362,11 +304,8 @@ async function listEpisodes(animeId: number): Promise<EpisodeListItem[]> {
   return episodes;
 }
 
-// Dedupes because AnimeLib's roster isn't always one row per real episode —
-// e.g. a recap can carry the same `number` as a regular episode (seen on
-// "О моём перерождении в слизь 3": id 121766, number "1", name "Рекап",
-// alongside the real episode 1). Left un-deduped the grid would show two
-// "серия 1" tiles.
+// Дедуп нужен: в списке AnimeLib одна серия не всегда одна строка — рекап может
+// нести тот же `number`, что и обычная серия, и сетка показала бы дубль.
 function sortedEpisodeNumbers(episodes: EpisodeListItem[]): string[] {
   return [...new Set(episodes.map((e) => e.number).filter(Boolean))].sort(
     (a, b) => parseFloat(a) - parseFloat(b),
@@ -391,11 +330,8 @@ interface RawPlayer {
   video?: { quality?: Array<{ href: string; quality: number }> };
 }
 
-// The raw `href` from the API 404s on its own — the real file sits behind an
-// extra path segment (confirmed by comparing a URL copied straight out of a
-// live <video> element against the API's href for the same file). Cyrillic
-// "а" (U+0430), not Latin — written as an escape so it isn't "corrected" by
-// someone who can't tell them apart at a glance.
+// Сырой `href` из API сам по себе даёт 404: настоящий файл лежит за
+// дополнительным сегментом пути.
 const CDN_PATH_PREFIX = '/.аs';
 
 function absoluteVideoUrl(href: string): string {
@@ -405,15 +341,15 @@ function absoluteVideoUrl(href: string): string {
 }
 
 /** Same name a team would show under in the Anixart-style "Озвучка" list —
- *  used both when listing teams and when matching a chosen one back to its
- *  player entry, so the two stay in lockstep by construction. */
+ *  используется и при перечислении команд, и при обратном поиске выбранной,
+ *  поэтому они не разъезжаются. */
 function dubDisplayName(p: RawPlayer): string {
   const name = p.team?.name || 'Озвучка';
   return p.translation_type?.label === 'Субтитры' ? `${name} (субтитры)` : name;
 }
 
-/** All "Animelib"-native dubs for one episode (Kodik-backed entries are irrelevant
- *  here — kodik.ts already covers those via the normal Anixart dubber list). */
+/** Все родные озвучки AnimeLib для серии. Записи Kodik здесь не нужны —
+ *  их закрывает обычный список озвучек Anixart. */
 const dubsCache = new Map<string, Array<{ team: string; qualities: AnimelibQuality[] }>>();
 async function fetchAnimelibDubs(
   episodeId: number,
@@ -423,15 +359,9 @@ async function fetchAnimelibDubs(
   const cached = dubsCache.get(key);
   if (cached) return cached;
 
-  // A 200 with a genuinely empty players array is itself a sign of the same
-  // AnimeLib flakiness fetchJson retries for — but fetchJson can't catch it,
-  // since an empty body is a perfectly normal-looking 200, not a network/5xx
-  // error. Reproduced directly: One Piece episode 641 (long-confirmed to
-  // carry 3 native dubs) came back with an empty player list once, then the
-  // full list immediately on the very next attempt. A real episode id
-  // (already resolved to exist) essentially always has *some* players — even
-  // just Kodik entries — so an empty array here is worth a few retries of
-  // its own, on top of fetchJson's per-request ones.
+  // Пустой список плееров при честном 200 — та же флакость, но fetchJson её не
+  // ловит: пустое тело выглядит нормальным ответом. У существующей серии плееры
+  // почти всегда есть хоть какие-то, поэтому пустоту стоит перепросить.
   let players: RawPlayer[] = [];
   for (let attempt = 0; attempt < 3 && players.length === 0; attempt++) {
     if (attempt > 0) await sleep(300 * attempt);
@@ -462,9 +392,8 @@ export interface AnimelibLookupResult {
   qualities?: AnimelibQuality[];
 }
 
-/** Resolves releaseId -> AnimeLib anime_id -> the episode_id for one episode
- *  number, sharing the override/search step so every AnimeLib call agrees on
- *  which catalog entry a release maps to. */
+/** releaseId → anime_id → episode_id. Шаг с пином и поиском общий, чтобы все
+ *  вызовы AnimeLib сходились на одном и том же тайтле. */
 async function resolveEpisodeId(
   releaseId: string,
   episodeNumber: number,
@@ -479,10 +408,9 @@ async function resolveEpisodeId(
 }
 
 /**
- * One release+episode -> the best AnimeLib-native dub available, if any.
- * "Best" = whichever team's own top quality is highest — teams don't all
- * upload the same tiers, so picking the max avoids surfacing a 480p-only
- * team when a different one on the same episode actually has 1080p.
+ * Лучшая озвучка AnimeLib для серии. Лучшая — та, у чьей команды выше
+ * собственный максимум качества: иначе можно выдать 480p, когда у соседней
+ * команды на этой же серии есть 1080p.
  */
 export async function lookupAnimelib(
   userId: number,
@@ -513,25 +441,18 @@ export interface AnimelibTeamsResult {
   reason?: 'no_token' | 'title_not_found' | 'episode_not_found' | 'no_native_source';
   teams?: string[];
   /**
-   * AnimeLib's own real episode numbers — NOT Anixart's episode count. A
-   * split-cour title can have Anixart running one continuous numbering while
-   * AnimeLib carries the parts as separate entries each starting over at 1
-   * (this exact franchise does — "4th Season" and "4th Season Part 2" are
-   * distinct AnimeLib titles). Building the episode grid from Anixart's count
-   * and reusing that number against AnimeLib produced "episode_not_found"
-   * past wherever the part boundary falls. Returning AnimeLib's actual roster
-   * means the grid only ever offers numbers that really resolve.
+   * Настоящие номера серий AnimeLib, а не количество из Anixart. У split-cour
+   * тайтла Anixart ведёт сквозную нумерацию, а AnimeLib держит части отдельными
+   * тайтлами, каждый с первой серии. Сетка по количеству из Anixart упиралась
+   * в episode_not_found за границей части.
    */
   episodeNumbers?: string[];
 }
 
 /**
- * Every AnimeLib-native team dubbing this release, plus its real episode
- * roster, for the "Источник" picker on the episode-selection screen —
- * anchored on whichever episode sorts first (usually "1", but the roster is
- * asked for regardless in case it isn't). A team's per-episode coverage can
- * still vary; one missing a specific later episode surfaces when that
- * episode is actually requested, same as it already does for Kodik dubs.
+ * Все команды AnimeLib для релиза и настоящий список серий — для выбора
+ * «Источника». Опираемся на первую по сортировке серию. Покрытие у команды
+ * может отличаться от серии к серии, это вскроется при запросе конкретной.
  */
 export async function listAnimelibTeams(
   userId: number,
@@ -548,14 +469,9 @@ export async function listAnimelibTeams(
   if (episodes.length === 0) return { found: false, reason: 'episode_not_found' };
 
   const numbers = sortedEpisodeNumbers(episodes);
-  // Probe episode "1" specifically rather than whichever number sorts first —
-  // AnimeLib sometimes numbers a bonus/interlude "0" ahead of the real start
-  // (same franchise again: id 118629, number "0", name «Беседа: "Дневник
-  // Диабло"» — the very Kanwa special isRealSeries() filters out of search).
-  // That episode had different (narrower) team coverage than the real season,
-  // so anchoring on numbers[0] showed teams that then failed on every actual
-  // episode. Falls back to numbers[0] only for titles that genuinely have no
-  // episode "1" (e.g. start numbering at 0 throughout).
+  // Щупаем именно серию «1», а не первую по сортировке: бонус или интерлюдия
+  // может стоять под номером «0» впереди настоящего начала, и покрытие команд у
+  // неё своё. На numbers[0] откатываемся только если серии «1» правда нет.
   const probeNumber = numbers.includes('1') ? '1' : numbers[0];
   const firstEpisode = episodes.find((e) => e.number === probeNumber);
   if (!firstEpisode) return { found: false, reason: 'episode_not_found' };
@@ -566,9 +482,8 @@ export async function listAnimelibTeams(
   return { found: true, teams: dubs.map((d) => d.team), episodeNumbers: numbers };
 }
 
-/** One release+episode+specific team (picked from listAnimelibTeams) -> its
- *  qualities — used when the player is opened with AnimeLib chosen as the
- *  source up front, rather than as an opt-in swap mid-playback. */
+/** Качества конкретной команды для серии — когда плеер открывают сразу с
+ *  выбранным источником AnimeLib, а не переключают на него по ходу. */
 export async function resolveAnimelibTeam(
   userId: number,
   releaseId: string,
@@ -589,9 +504,8 @@ export async function resolveAnimelibTeam(
   return { found: true, team: match.team, qualities: match.qualities };
 }
 
-/** Cheap sanity check for a candidate override id — confirms it's a real
- *  AnimeLib anime with an episode roster before the Telegram bot offers it
- *  as something to link (see features/telegram.ts's link handler). */
+/** Дешёвая проверка кандидата в пины: существует ли такой тайтл и есть ли у
+ *  него серии, прежде чем бот предложит его привязать. */
 export async function animeHasEpisodes(animeId: number): Promise<boolean> {
   const episodes = await listEpisodes(animeId).catch(() => []);
   return episodes.length > 0;

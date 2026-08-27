@@ -1,15 +1,13 @@
 import type { StreamQuality, ResolvedPlayback } from './kodik.js';
 
 /**
- * AniLibria stream resolver ("Liberty" source in Anixart's dubber list).
+ * Резолвер потоков AniLibria — источник «Liberty» в списке озвучек Anixart.
  *
- * Anixart's episode.url for this source is a `anixart.libria.fun/public/iframe.php`
- * page, signed with `d`/`s`/`ip` like Kodik's links. Unlike Kodik, the page embeds
- * the full episode list (with quality-tagged HLS manifests) directly in inline JS
- * for a Playerjs instance — no separate obfuscated info endpoint to discover.
+ * Ссылка приходит на iframe.php, подписанный `d`/`s`/`ip`, как у Kodik. Но здесь
+ * весь список серий с HLS-манифестами лежит прямо в инлайновом JS для Playerjs,
+ * искать отдельную запрятанную ручку не нужно.
  *
- * Quality here regularly reaches 1080p, which Kodik's encodes for this catalogue
- * do not — this is the source to prefer when a title has it.
+ * Качество тут регулярно доходит до 1080p, чего у Kodik по этому каталогу нет.
  */
 
 const ALLOWED_HOSTS = new Set(['anixart.libria.fun']);
@@ -29,9 +27,8 @@ interface RawEpisode {
   file?: string;
 }
 
-/** Finds the index of the `]` matching the `[` at openIdx, ignoring bracket
- *  characters that appear inside JSON string literals (the quality tags in
- *  each episode's `file` value are themselves written as literal "[720p]..."). */
+/** Ищет `]`, парную `[` на openIdx, не считая скобок внутри строк: метки
+ *  качества в поле `file` сами записаны как "[720p]...". */
 function findMatchingBracket(html: string, openIdx: number): number {
   let depth = 0;
   let inString = false;
@@ -52,8 +49,8 @@ function findMatchingBracket(html: string, openIdx: number): number {
   return -1;
 }
 
-/** Pulls the `file:[...]` episode array out of the inline `new Playerjs({...})`
- *  call and parses it — the array itself is valid JSON, just embedded in JS. */
+/** Достаёт массив серий `file:[...]` из вызова `new Playerjs({...})`. Сам массив —
+ *  валидный JSON, просто вложен в JS. */
 function extractEpisodes(html: string): RawEpisode[] {
   const marker = 'file:[';
   const start = html.indexOf(marker);
@@ -64,7 +61,7 @@ function extractEpisodes(html: string): RawEpisode[] {
   return JSON.parse(html.slice(openIdx, closeIdx + 1)) as RawEpisode[];
 }
 
-/** "[480p]url1,[720p]url2,[1080p]url3" → sorted StreamQuality[], best first. */
+/** "[480p]url1,[720p]url2,[1080p]url3" → StreamQuality[], лучшее первым. */
 function parseQualities(fileStr: string): StreamQuality[] {
   const byLabel = new Map<string, string>();
   for (const part of fileStr.split(/,(?=\[)/)) {

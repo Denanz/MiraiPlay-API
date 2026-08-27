@@ -3,20 +3,17 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * Access denylist with JSON persistence. Bans can target an IP, an account id,
- * or a login; sign-in binds a token to its owner so live sessions of a banned
- * account are cut off too.
+ * Список блокировок с сохранением в JSON. Бан вешается на IP, id аккаунта или
+ * логин; вход привязывает токен к владельцу, поэтому живые сессии тоже рвутся.
  */
 
 export function trimIp(ip: string | null | undefined): string {
   return (ip ?? '').replace('::ffff:', '').trim();
 }
 
-// RFC1918 private space for 172.x is only 172.16.0.0–172.31.255.255 (a /12) — the
-// old `startsWith('172.')` check matched the entire /8, wrongly treating huge
-// public ranges (e.g. Cloudflare 172.64.0.0/13, Google 172.217.0.0/16 and
-// 172.253.0.0/16) as "local", so banIp() silently refused to ban abusive clients
-// sitting in any of those ranges.
+// Приватная часть 172.x по RFC1918 — только 172.16.0.0–172.31.255.255. Проверка
+// по префиксу «172.» захватывала бы весь /8, включая публичные диапазоны
+// Cloudflare и Google, и бан по таким адресам молча не срабатывал бы.
 const PRIVATE_172_RE = /^172\.(1[6-9]|2\d|3[01])\./;
 
 export function isLocalIp(ip: string): boolean {
@@ -49,8 +46,8 @@ class Denylist {
   private ips = new Set<string>();
   private accounts = new Set<number>();
   private logins = new Set<string>();
-  // token → account, learned at sign-in. Persisted so the notifier can resolve
-  // which subscriber a captured token belongs to across restarts.
+  // токен → аккаунт, узнаётся при входе. Сохраняем, чтобы после перезапуска
+  // уведомлялка понимала, чей это токен.
   private owners = new Map<string, Owner>();
 
   constructor() {
@@ -61,7 +58,7 @@ class Denylist {
       this.logins = new Set((snap.logins ?? []).map((l) => l.toLowerCase()));
       this.owners = new Map(snap.owners ?? []);
     } catch {
-      // No file on first boot — start with an empty list.
+      // Первый запуск, файла нет — начинаем с пустого списка.
     }
   }
 
@@ -76,7 +73,7 @@ class Denylist {
       };
       writeFileSync(this.file, JSON.stringify(snap, null, 2));
     } catch {
-      // Persistence is best-effort; in-memory state still enforces the ban.
+      // Не записалось — не страшно, в памяти бан всё равно действует.
     }
   }
 
@@ -88,7 +85,7 @@ class Denylist {
     this.persist();
   }
 
-  /** Resolve the account a token belongs to (set at sign-in). */
+  /** Чей это токен — связка ставится при входе. */
   /** Все известные пары «токен → аккаунт» — для фоновых задач, которым нужно
    *  обойти пользователей, а не отвечать на конкретный запрос. */
   knownTokens(): Array<{ userId: number; token: string }> {
@@ -119,7 +116,7 @@ class Denylist {
     return owner ? this.accountBlocked(owner.id, owner.login) : false;
   }
 
-  /** Refuses loopback/private addresses so the operator can't self-lock the node. */
+  /** Не даёт забанить локальные адреса и запереть самого себя. */
   banIp(ip: string): boolean {
     const v = trimIp(ip);
     if (isLocalIp(v)) return false;

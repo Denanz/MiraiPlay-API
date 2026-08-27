@@ -8,9 +8,8 @@ import { getLinkedAccount, linkAccount, unlinkAccount } from '../services/linked
 import { resolveUserId } from '../services/identity.js';
 
 /**
- * Sign-in interception. We relay credentials to the upstream API verbatim, but
- * on success we register the session (for denylist + telemetry) and push a
- * Telegram card with profile details and quick-ban buttons.
+ * Перехват входа. Логин и пароль уходят в upstream как есть, но при успехе мы
+ * запоминаем сессию и шлём в Telegram карточку профиля с кнопками бана.
  */
 
 function clientIp(req: FastifyRequest): string {
@@ -36,7 +35,7 @@ async function announceLogin(
     });
     profile = res.data?.profile ?? {};
   } catch {
-    // Enrichment is optional — fall back to the bare login.
+    // Профиль подтянуть не вышло — обойдёмся одним логином.
   }
 
   const ip = clientIp(req);

@@ -1,14 +1,14 @@
 import { settings, upstreamOrigin } from '../config/settings.js';
 
 /**
- * Thin wrapper over the global fetch (undici) that talks to the upstream API.
+ * Тонкая обёртка над fetch для похода в upstream API.
  *
- * Two jobs: keep our edge node looking like the native app (User-Agent + a tight
- * header allowlist) and refuse to be turned into an open relay (origin pinning).
+ * Две задачи: выглядеть для него как нативное приложение — User-Agent и узкий
+ * список заголовков — и не превратиться в открытый релей, для чего origin прибит.
  */
 
-// Only these request headers ever reach upstream. Browser fingerprints — Origin,
-// Referer, Cookie, Sec-*, sec-ch-ua, the browser UA — are intentionally dropped.
+// Наверх уходят только эти заголовки. Всё, по чему узнаётся браузер — Origin,
+// Referer, Cookie, Sec-*, UA — отбрасывается намеренно.
 const FORWARDABLE = new Set([
   'authorization',
   'content-type',
@@ -17,8 +17,8 @@ const FORWARDABLE = new Set([
   'x-api-version',
 ]);
 
-// undici auto-decompresses, so re-advertising the original encoding/length would
-// corrupt the (already-plain) body. Hop-by-hop headers are dropped too.
+// undici распаковывает сам, поэтому исходные encoding и length передавать нельзя —
+// тело уже распаковано. Hop-by-hop заголовки тоже убираем.
 const NON_FORWARDABLE_RESPONSE = new Set([
   'host',
   'connection',
@@ -55,7 +55,7 @@ function appendParam(params: URLSearchParams, key: string, value: unknown): void
 
 function targetUrl(path: string, query?: Record<string, unknown>): URL {
   const url = new URL(`/${path.replace(/^\/+/, '')}`, settings.UPSTREAM_BASE_URL);
-  // A path like "//evil.tld/x" would re-point new URL() at another host.
+  // Путь вида "//evil.tld/x" увёл бы new URL() на чужой хост.
   if (url.origin !== upstreamOrigin) {
     throw new UpstreamError('target origin rejected', 400);
   }
@@ -65,7 +65,7 @@ function targetUrl(path: string, query?: Record<string, unknown>): URL {
   return url;
 }
 
-/** Reduce inbound headers to the native-app allowlist (UA injected separately). */
+/** Оставляет от входящих заголовков только разрешённые; UA подставляется отдельно. */
 export function passableHeaders(incoming: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(incoming)) {
@@ -104,14 +104,14 @@ export async function callUpstream(opts: {
   }
 }
 
-/** Copy upstream headers onto an outgoing reply, skipping the unsafe ones. */
+/** Переносит заголовки ответа upstream в наш, отбрасывая небезопасные. */
 export function relayHeaders(from: Headers, set: (key: string, value: string) => void): void {
   from.forEach((value, key) => {
     if (!NON_FORWARDABLE_RESPONSE.has(key.toLowerCase())) set(key, value);
   });
 }
 
-/** Fetch upstream and parse JSON in one shot (used by interceptors/features). */
+/** Сходить в upstream и сразу разобрать JSON. */
 export async function upstreamJson<T = unknown>(opts: {
   method?: string;
   path: string;

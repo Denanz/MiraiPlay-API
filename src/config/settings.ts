@@ -10,7 +10,7 @@ const schema = z.object({
     .default('info'),
 
   UPSTREAM_BASE_URL: z.string().url().default('https://api.anixart.tv'),
-  // Pose as the native Android client so requests don't look like a web proxy.
+  // Прикидываемся нативным Android-клиентом, чтобы запросы не выглядели прокси.
   UPSTREAM_USER_AGENT: z.string().default('okhttp/4.12.0'),
   UPSTREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
 
@@ -23,8 +23,8 @@ const schema = z.object({
   SHIKIMORI_REDIRECT_URI: z.string().optional(),
   PREMIUM_EXPIRES_AT: z.coerce.number().int().positive().default(4070908800),
 
-  // Separate from GATEWAY_KEY, which ships inside the public frontend bundle
-  // (not a real secret). Owner-only diagnostics stay 404 until this is set.
+  // Отдельно от GATEWAY_KEY: тот лежит в публичном бандле и секретом не является.
+  // Пока не задан, вся диагностика отвечает 404.
   ADMIN_KEY: z.string().optional(),
 
   // Ключ read-only хроники просмотров (X-Timeline-Key), которую опрашивает
@@ -48,16 +48,16 @@ const schema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(600),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
 
-  // Label used as a heading in enriched release notes.
+  // Заголовок в дополненных примечаниях к релизу.
   BRAND_LABEL: z.string().default('MiraiPlay'),
 
-  // Release enrichment (Shikimori). Enabled unless explicitly disabled.
+  // Обогащение карточек через Shikimori. Включено, пока явно не выключат.
   RELEASE_ENRICH: z
     .string()
     .optional()
     .transform((v) => (v == null ? true : !/^(0|false|no|off)$/i.test(v))),
 
-  // On-the-fly image resize/WebP in the /img proxy. Enabled unless disabled.
+  // Ресайз и WebP на лету в прокси /img. Включено, пока явно не выключат.
   IMG_OPTIMIZE: z
     .string()
     .optional()
@@ -69,7 +69,7 @@ export type Settings = z.infer<typeof schema>;
 function load(): Settings {
   const parsed = schema.safeParse(process.env);
   if (!parsed.success) {
-    // Fail fast: a misconfigured edge node should never start half-broken.
+    // Падаем сразу: узел с кривой конфигурацией не должен подниматься наполовину.
     console.error('[settings] invalid environment:');
     console.error(JSON.stringify(parsed.error.flatten().fieldErrors, null, 2));
     process.exit(1);
@@ -79,12 +79,12 @@ function load(): Settings {
 
 export const settings = load();
 
-/** Origin of the upstream API — used by the anti-SSRF guard. */
+/** Origin upstream API — по нему сверяется защита от SSRF. */
 export const upstreamOrigin = new URL(settings.UPSTREAM_BASE_URL).origin;
 
 /**
- * Browser origins permitted to call the gateway (CORS). Native/Capacitor apps
- * and the local dev server are included alongside the production front-ends.
+ * Какие origin пускаем в шлюз через CORS. Кроме боевых фронтов сюда входят
+ * приложение на Capacitor и локальный dev-сервер.
  */
 export const allowedOrigins = new Set<string>([
   'https://anime.denanz.fun',

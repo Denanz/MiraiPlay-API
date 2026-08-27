@@ -12,9 +12,9 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * Per-user screenshot gallery stored on disk. A user is addressed by an opaque
- * "bucket" — never by a client-supplied id, so one user can't enumerate or touch
- * another's gallery (no IDOR). The bucket in a file URL is itself the capability.
+ * Личная галерея скриншотов на диске. Пользователь адресуется непрозрачным
+ * bucket'ом, а не присланным клиентом id — иначе чужую галерею можно было бы
+ * перебрать. Bucket в адресе файла и есть пропуск к нему.
  *
  * Сам адрес выдаёт services/identity.ts: он считается от стабильного id аккаунта,
  * а не от токена (раньше было от токена, из-за чего смена устройства или
@@ -97,7 +97,7 @@ export function removeShot(bucket: string, id: string): boolean {
   try {
     unlinkSync(join(bucketDir(b), `${sid}.${meta.ext}`));
   } catch {
-    // already gone
+    // уже удалено
   }
   writeIndex(
     b,
@@ -106,7 +106,7 @@ export function removeShot(bucket: string, id: string): boolean {
   return true;
 }
 
-/** Attach (or clear) a free-text note on one screenshot. */
+/** Поставить или снять заметку у скриншота. */
 export function setNote(bucket: string, id: string, note: string): boolean {
   const b = safe(bucket);
   const sid = safe(id);

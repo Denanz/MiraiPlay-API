@@ -3,9 +3,8 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * Global override for the Home page hero. Unset (default) falls back to the
- * frontend's own automatic popularity-based pick — this only exists so the
- * owner can occasionally pin a specific title instead.
+ * Ручной выбор тайтла для баннера на главной. Пока не задан, фронт сам берёт
+ * что-то популярное.
  */
 
 const FILE = join(settings.STATE_DIR, 'spotlight.json');

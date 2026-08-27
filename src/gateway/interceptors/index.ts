@@ -2,17 +2,17 @@ import { decorateProfileCard, decorateProfileInfo } from './perks.js';
 import { applyToggleOverrides } from './toggles.js';
 
 /**
- * Registry of post-response rewriters. The passthrough proxy consults this for
- * every request; a matching rule transforms a 200 JSON body before it is sent.
- * Path is the upstream path (the /api/v1 mount prefix already stripped).
+ * Реестр правил, переписывающих ответ. Прокси заглядывает сюда на каждом запросе;
+ * подошедшее правило меняет JSON-тело перед отдачей. Путь — как у upstream, без
+ * префикса /api/v1.
  */
 
 export interface Interceptor {
   matches(method: string, path: string): boolean;
   transform(data: any): any;
   /**
-   * When true the transform runs even if upstream returned an empty/non-JSON
-   * 200 (the body is treated as `{}`). Used for overrides that must always win.
+   * Если true, правило сработает даже на пустом ответе — тело считается `{}`.
+   * Для случаев, когда наша подмена должна побеждать всегда.
    */
   force?: boolean;
 }

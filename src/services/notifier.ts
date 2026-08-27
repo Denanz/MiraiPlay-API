@@ -1,8 +1,8 @@
 import { settings } from '../config/settings.js';
 
 /**
- * Outbound side of the Telegram bridge — fire-and-forget messages to the admin
- * chat. Inbound commands live in features/telegram.ts.
+ * Исходящая половина моста в Telegram: сообщения владельцу без ожидания ответа.
+ * Входящие команды — в features/telegram.ts.
  */
 
 export interface TgButton {
@@ -26,11 +26,11 @@ async function call(method: string, payload: Record<string, unknown>): Promise<v
       body: JSON.stringify(payload),
     });
   } catch {
-    // Delivery is best-effort; never let a notification failure surface to a user.
+    // Не доставилось — молчим: сбой уведомления не должен всплывать у пользователя.
   }
 }
 
-/** Escape user-controlled text for Telegram HTML parse mode. */
+/** Экранирование пользовательского текста для HTML-разметки Telegram. */
 export function htmlEscape(value: unknown): string {
   return String(value ?? '—')
     .replaceAll('&', '&amp;')
@@ -49,7 +49,7 @@ export function notify(text: string, keyboard?: TgButton[][]): Promise<void> {
   });
 }
 
-/** Send to a specific chat and report whether Telegram accepted it. */
+/** Отправить в конкретный чат и сказать, принял ли его Telegram. */
 export async function sendTo(chatId: string, text: string): Promise<boolean> {
   if (!settings.TELEGRAM_BOT_TOKEN || !chatId) return false;
   try {

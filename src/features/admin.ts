@@ -7,11 +7,9 @@ import { telemetry } from '../services/monitor.js';
 import { denylist } from '../services/blocklist.js';
 
 /**
- * Owner-only diagnostics. Gated behind ADMIN_KEY — a separate secret from
- * GATEWAY_KEY (which ships inside the public frontend bundle and therefore
- * isn't actually secret). The whole surface 404s, not 403s, when ADMIN_KEY
- * is unset, so its existence isn't discoverable on a server that hasn't
- * opted in.
+ * Диагностика для владельца, за отдельным ADMIN_KEY. GATEWAY_KEY для этого не
+ * годится: он лежит в публичном бандле фронта и секретом не является. Без
+ * заданного ADMIN_KEY всё отвечает 404, а не 403 — чтобы не выдавать сам факт.
  */
 
 function requireAdmin(req: FastifyRequest, reply: FastifyReply): boolean {
@@ -42,7 +40,7 @@ function dirSize(path: string): number {
       try {
         total += statSync(full).size;
       } catch {
-        // File removed mid-scan — skip it.
+        // Файл исчез по ходу обхода — пропускаем.
       }
     }
   }
@@ -83,9 +81,8 @@ export function registerAdmin(scope: FastifyInstance): void {
     });
   });
 
-  // Intentionally NOT admin-gated — the Home page hero reads this on every
-  // visit to know whether to skip its own popularity pick. Read-only, no
-  // sensitive data, same trust level as any other public catalog data.
+  // Намеренно без админского ключа: главная читает это при каждом заходе.
+  // Только чтение, ничего чувствительного.
   scope.get('/spotlight', async (_req: FastifyRequest, reply: FastifyReply) => {
     return reply.send({ releaseId: getSpotlightOverride() });
   });
@@ -97,8 +94,7 @@ export function registerAdmin(scope: FastifyInstance): void {
     return reply.send({ ok: true, releaseId: getSpotlightOverride() });
   });
 
-  // Same data already surfaced by the Telegram /stats and /logins commands —
-  // this just gives it a web face for when a phone isn't handy.
+  // Те же данные, что у команд бота /stats и /logins, только с веб-лицом.
   scope.get('/admin/telemetry', async (req: FastifyRequest, reply: FastifyReply) => {
     if (!requireAdmin(req, reply)) return;
     return reply.send({
@@ -108,8 +104,7 @@ export function registerAdmin(scope: FastifyInstance): void {
     });
   });
 
-  // Same ban/unban the Telegram /ban_ip /ban_user commands already do — a
-  // web face for the same denylist.
+  // Тот же бан, что и командами бота, поверх того же списка.
   scope.post('/admin/denylist/ip', async (req: FastifyRequest, reply: FastifyReply) => {
     if (!requireAdmin(req, reply)) return;
     const { ip, action } = (req.body ?? {}) as Record<string, unknown>;
@@ -138,8 +133,7 @@ export function registerAdmin(scope: FastifyInstance): void {
     if (!requireAdmin(req, reply)) return;
     const { value, action } = (req.body ?? {}) as Record<string, unknown>;
     if (typeof value !== 'string' || !value) return reply.code(400).send({ error: 'missing_value' });
-    // See telegram.ts handleCommand for why: an all-digits value could be an
-    // account id or a numeric login, so target both fields instead of guessing.
+    // Почему бьём по обоим полям при числовом аргументе — см. telegram.ts.
     const numericId = /^\d+$/.test(value) ? Number(value) : undefined;
     if (action === 'unban') {
       denylist.unbanAccount(numericId, value);

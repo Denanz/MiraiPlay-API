@@ -4,13 +4,12 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * App update channel. The Android build is sideloaded (offline-bundled frontend),
- * so it can't auto-update from a store — instead it polls this endpoint on launch
- * and, if a newer versionCode is advertised, prompts the user to grab the new APK.
+ * Канал обновлений приложения. APK ставится в обход магазина, поэтому обновиться
+ * само оно не может: при запуске спрашивает эту ручку и, если объявлен versionCode
+ * повыше, предлагает скачать новую сборку.
  *
- * The advertised version lives in an editable file at STATE_DIR/app-version.json,
- * so a release only needs that file bumped + the new APK published — no rebuild of
- * this image. The constant below is the fallback when the file is absent.
+ * Объявленная версия лежит в app-version.json, так что релиз — это правка файла и
+ * публикация APK, без пересборки образа. Константа ниже нужна, если файла нет.
  */
 
 export interface AppVersion {

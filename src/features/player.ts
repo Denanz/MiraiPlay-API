@@ -38,8 +38,8 @@ async function resolveMalId(titles: { ru?: string; orig?: string }): Promise<num
 }
 
 /**
- * Player endpoints: the HTML page (resolves a Kodik link into a self-hosted
- * player), watch-progress sync, and the personal screenshot gallery.
+ * Ручки плеера: сама HTML-страница, синк прогресса просмотра и личная галерея
+ * скриншотов.
  */
 
 const frameAncestors = [
@@ -94,7 +94,7 @@ async function syncReleaseToShikimori(
 }
 
 export function registerPlayer(scope: FastifyInstance): void {
-  // ── HTML player page ──
+  // ── HTML-страница плеера ──
   scope.get('/player', async (req: FastifyRequest, reply: FastifyReply) => {
     const q = req.query as Record<string, string>;
     const { url, title, subtitle, releaseId, sourceId, position, token, animelibTeam } = q;
@@ -105,8 +105,8 @@ export function registerPlayer(scope: FastifyInstance): void {
 
     let playback;
     // AnimeLib chosen as the source up front (WatchPage's "Источник" picker) —
-    // its qualities are resolved straight from the viewer's own AnimeLib
-    // account, bypassing the Kodik/AniLibria url-resolve path entirely.
+    // качества берём прямо из аккаунта зрителя на AnimeLib, минуя резолв
+    // ссылок Kodik и AniLibria.
     if (animelibTeam) {
       const userId = await resolveUserId(token || '');
       if (!userId) return reply.code(401).type('text/plain').send('auth required');
@@ -117,10 +117,8 @@ export function registerPlayer(scope: FastifyInstance): void {
       if (!result.found || !result.qualities?.length) {
         return reply.code(502).type('text/plain').send('animelib: ' + (result.reason || 'not found'));
       }
-      // Relayed through /animelib/stream, not linked to video1.cdnlibs.org
-      // directly — DDoS-Guard in front of that CDN gates on Referer, and a
-      // <video src> loaded straight from our own domain would send the wrong
-      // one (see features/animelib.ts's /animelib/stream for the real fix).
+      // Отдаём через /animelib/stream, а не ссылкой на CDN напрямую: DDoS-Guard
+      // смотрит на Referer, а <video src> с нашего домена пришлёт неправильный.
       const qualities = result.qualities.map((q) => ({
         label: q.label,
         url: `/api/v1/animelib/stream?url=${encodeURIComponent(q.url)}`,
@@ -137,20 +135,19 @@ export function registerPlayer(scope: FastifyInstance): void {
       }
     }
 
-    // Cross-device resume: pull the last saved position for this episode from
-    // the user's bucket so playback continues even on a device with no
-    // localStorage history. The page still merges in any newer local value.
+    // Продолжение с другого устройства: тянем сохранённую позицию из хранилища
+    // пользователя. Страница всё равно возьмёт более свежее локальное значение.
     let resumeTime = 0;
     if (token) {
       const saved = getProgress(await resolveBucket(token), String(releaseId), String(sourceId), String(position));
       if (saved && saved.position > 15) resumeTime = saved.position;
     }
 
-    // Best-effort MAL ID lookup for Aniskip (1.5s budget; cache makes it instant on repeat).
-    // Search ONLY by the clean release title. `subtitle` is "dubber · source ·
+    // Ищем MAL ID для Aniskip, бюджет 1.5с, повторные попадают в кэш.
+    // Только по чистому названию релиза: `subtitle` — это «озвучка · источник ·
     // серия N" — feeding that to Shikimori matches garbage (e.g. it returns the
-    // wrong anime on the trailing episode number), which then yields skip times
-    // for the wrong show. `origTitle` is an optional romaji/original fallback.
+    // номер серии в хвосте уводит поиск на чужой тайтл, и таймкоды приедут не те.
+    // `origTitle` — необязательный запасной вариант с оригинальным названием.
     const malId = q.malId
       ? (Number(q.malId) || null)
       : await resolveMalId({ ru: title || undefined, orig: q.origTitle || undefined });
@@ -182,7 +179,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     return reply.type('text/html; charset=utf-8').send(html);
   });
 
-  // ── watch progress sync ──
+  // ── синк прогресса просмотра ──
   scope.post('/player/progress', async (req: FastifyRequest, reply: FastifyReply) => {
     const { releaseId, sourceId, episodePosition, time, duration, title, token, markWatchedSourceId } =
       (req.body ?? {}) as {
@@ -198,14 +195,11 @@ export function registerPlayer(scope: FastifyInstance): void {
     if (!releaseId || !sourceId || !episodePosition) {
       return reply.code(400).send({ error: 'missing_fields' });
     }
-    // Mark the episode watched upstream once the user is ~through it. AnimeLib
-    // playback reports sourceId:-1 (our own sentinel — see WatchPage), which
-    // Anixart's account has never heard of, so the real call needs a genuine
-    // source id in its place; markWatchedSourceId carries one along
-    // (WatchPage picks any real source for the release) when sourceId itself
-    // isn't usable for this specific call. Progress storage below still keys
-    // on the original sourceId regardless, so resume/continue-watching stay
-    // correctly scoped to AnimeLib specifically.
+    // Отмечаем серию просмотренной, когда она почти досмотрена. У AnimeLib
+    // sourceId равен -1 — наш собственный признак, Anixart такого не знает,
+    // поэтому для самого вызова подставляем настоящий id из markWatchedSourceId.
+    // Прогресс ниже по-прежнему хранится под исходным sourceId, иначе
+    // «продолжить смотреть» перестал бы отличать AnimeLib от прочих.
     const finished =
       typeof time === 'number' &&
       typeof duration === 'number' &&
@@ -227,7 +221,7 @@ export function registerPlayer(scope: FastifyInstance): void {
         });
       }
     }
-    // Persist fine-grained position for cross-device resume + continue-watching.
+    // Точная позиция для продолжения с другого устройства.
     if (typeof token === 'string' && token && typeof time === 'number' && time >= 0) {
       // Хроника просмотров для MiraiTimeline — пишется всем и метится
       // Anixart-id зрителя; кому её показывать, решает уже сам MiraiTimeline.
@@ -264,13 +258,13 @@ export function registerPlayer(scope: FastifyInstance): void {
         title: typeof title === 'string' ? title.slice(0, 200) : undefined,
         updatedAt: Date.now(),
       });
-      // Remember the owner's token so the new-episode watcher can read their list.
+      // Запоминаем токен, чтобы следилка за новыми сериями читала его списки.
       setNotifyToken(token);
     }
     return reply.code(204).send();
   });
 
-  // ── saved position for one episode (cross-device resume) ──
+  // ── сохранённая позиция серии ──
   scope.get('/player/progress', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -335,14 +329,14 @@ export function registerPlayer(scope: FastifyInstance): void {
     });
   });
 
-  // ── in-progress episodes across releases (continue watching) ──
+  // ── недосмотренные серии по всем релизам: «продолжить смотреть» ──
   scope.get('/player/continue', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
     return reply.send({ items: listContinue(await resolveBucket(token)) });
   });
 
-  // ── screenshot gallery ──
+  // ── галерея скриншотов ──
   scope.post('/player/screenshot', async (req: FastifyRequest, reply: FastifyReply) => {
     const { image, releaseId, title, episode, time } = (req.body ?? {}) as Record<string, unknown>;
     const token = tokenFrom(req);
@@ -395,7 +389,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     return reply.code(ok ? 200 : 404).send({ ok });
   });
 
-  // Attach/clear a free-text note on a screenshot.
+  // Заметка к скриншоту: поставить или снять.
   scope.post('/player/screenshots/:id/note', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ ok: false });
@@ -405,7 +399,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     return reply.code(ok ? 200 : 404).send({ ok });
   });
 
-  // ── Episode ratings ──
+  // ── Оценки серий ──
   scope.post('/player/rating', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -426,7 +420,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     return reply.send({ ok: true });
   });
 
-  // All ratings for a release+source (used by the episode list)
+  // Все оценки релиза для списка серий
   scope.get('/player/ratings', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -435,7 +429,7 @@ export function registerPlayer(scope: FastifyInstance): void {
     return reply.send({ ratings: getRatings(await resolveBucket(token), q.releaseId, q.sourceId) });
   });
 
-  // Single episode rating (used by the player on load)
+  // Оценка одной серии, читается плеером при загрузке
   scope.get('/player/rating', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -445,8 +439,8 @@ export function registerPlayer(scope: FastifyInstance): void {
     return reply.send({ rating });
   });
 
-  // ── Personal release rating (1–10, stored on MiraiHub only — never sent to
-  //    Anixart; separate from the upstream 5-star community vote) ──
+  // ── Личная оценка релиза, 1–10. Живёт только у нас и в Anixart не уходит:
+  //    это не та же сущность, что общая пятизвёздочная. ──
   scope.post('/release/rating', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenFrom(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });

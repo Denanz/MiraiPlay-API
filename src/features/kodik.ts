@@ -1,10 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 /**
- * Kodik stream resolver. Given a Kodik iframe link it loads the player page,
- * finds the (obfuscated) info endpoint, requests the stream manifest and
- * returns a clean list of qualities. The cipher and URL shape are Kodik's own
- * protocol — we just speak it.
+ * Резолвер потоков Kodik: по ссылке на iframe загружает страницу плеера,
+ * находит запрятанную ручку, запрашивает манифест и отдаёт список качеств.
+ * Шифр и формат URL — протокол самого Kodik, мы только говорим на нём.
  */
 
 const LINK_SHAPE =
@@ -32,7 +31,7 @@ export interface ResolvedPlayback {
   defaultLabel: string;
 }
 
-/** Kodik ships sources Caesar-shifted by 18 then base64-encoded. */
+/** Источники приходят сдвинутыми шифром Цезаря на 18 и закодированными в base64. */
 function decodeSource(encoded: string): string {
   const unshifted = encoded.replace(/[a-z]/gi, (ch) => {
     const code = ch.charCodeAt(0);
@@ -60,7 +59,7 @@ function canonicalUrl(url: string): string {
       return parsed.toString();
     }
   } catch {
-    // Leave unparseable input as-is; the allowlist check below rejects it.
+    // Неразбираемое оставляем как есть — его отсеет проверка списка ниже.
   }
   return normalized;
 }
@@ -87,17 +86,14 @@ function dissect(url: string): LinkParts {
   if (!groups?.host || !groups.kind || !groups.id || !groups.hash) {
     throw new Error('malformed kodik link');
   }
-  // The fetch target must be the SAME hostname that was actually validated above —
-  // never the regex-captured group. LINK_SHAPE is unanchored, so it can match a
-  // //host/kind/id/hash/qualityp-shaped substring smuggled anywhere in the URL
-  // (e.g. a query param) while the real, parsed hostname (what the allowlist check
-  // above inspected) points somewhere else — an SSRF if the two are allowed to
-  // diverge.
+  // Качаем строго с того хоста, который проверили выше, а не с пойманного
+  // регуляркой. LINK_SHAPE не привязан к началу строки и может совпасть с куском,
+  // подсунутым в query, — если дать этим двум разойтись, получится SSRF.
   const host = new URL(normalized).hostname;
   return { host, kind: groups.kind, id: groups.id, hash: groups.hash };
 }
 
-/** The info endpoint path is hidden in a JS chunk as an atob() literal. */
+/** Путь к ручке спрятан в JS-чанке литералом внутри atob(). */
 async function discoverInfoEndpoint(page: string, host: string): Promise<string> {
   const chunk = page.match(/src="(?<path>\/assets\/js\/app\.player_single\.[^"]+\.js)"/i)?.groups
     ?.path;
@@ -135,7 +131,7 @@ function collectQualities(links: ManifestLinks): StreamQuality[] {
 export async function resolveKodik(rawUrl: string): Promise<ResolvedPlayback> {
   const parts = dissect(rawUrl);
 
-  // Drop the auth params (d/s/ip) — Kodik rejects them when ip ≠ requester.
+  // Параметры авторизации убираем: Kodik отвергает их, когда ip не совпадает.
   const pageUrl = new URL(canonicalUrl(rawUrl));
   pageUrl.search = '';
 

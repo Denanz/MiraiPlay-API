@@ -4,8 +4,8 @@ import { settings } from '../config/settings.js';
 import { trimIp } from './blocklist.js';
 
 /**
- * Runtime telemetry feeding the Telegram /stats and /logins commands. Traffic
- * counters live in memory (reset on restart); the login journal is persisted.
+ * Телеметрия для команд бота /stats и /logins. Счётчики трафика живут в памяти и
+ * обнуляются при перезапуске, журнал входов пишется на диск.
  */
 
 export interface LoginRecord {
@@ -41,7 +41,7 @@ class Telemetry {
     try {
       this.journal = JSON.parse(readFileSync(this.file, 'utf8')) as LoginRecord[];
     } catch {
-      // No journal yet.
+      // Журнала ещё нет.
     }
   }
 
@@ -50,7 +50,7 @@ class Telemetry {
       mkdirSync(settings.STATE_DIR, { recursive: true });
       writeFileSync(this.file, JSON.stringify(this.journal.slice(-JOURNAL_CAP)));
     } catch {
-      // Non-fatal.
+      // Не критично.
     }
   }
 

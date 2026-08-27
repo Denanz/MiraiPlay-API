@@ -24,8 +24,7 @@ function tokenOf(req: FastifyRequest): string {
 }
 
 export function registerAnimelib(scope: FastifyInstance): void {
-  // ── Connect/disconnect the caller's own AnimeLib account (token pasted from
-  //    their own logged-in browser session — see services/animelib.ts) ──
+  // ── Подключение и отключение своего аккаунта AnimeLib ──
   scope.post('/animelib/token', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -35,7 +34,7 @@ export function registerAnimelib(scope: FastifyInstance): void {
     const userId = await resolveUserId(token);
     if (!userId) return reply.code(401).send({ error: 'unknown_account' });
     setToken(userId, clean);
-    // Optional: with it we renew the 31-day token ourselves from here on.
+    // Необязателен, но с ним 31-дневный токен продлевается уже без участия человека.
     const refresh = typeof animelibRefreshToken === 'string' ? animelibRefreshToken.trim() : '';
     if (refresh) setRefreshToken(userId, refresh);
     return reply.send({
@@ -65,8 +64,7 @@ export function registerAnimelib(scope: FastifyInstance): void {
     return reply.send({ ok: true });
   });
 
-  // Manual releaseId -> AnimeLib anime_id pin — fallback for whatever the
-  // (now authenticated) search still gets wrong (see services/animelib.ts).
+  // Ручной пин releaseId → anime_id: запасной вариант там, где поиск ошибается.
   scope.post('/animelib/override', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -78,8 +76,7 @@ export function registerAnimelib(scope: FastifyInstance): void {
   });
 
   // Full team list for the "Источник" picker on the episode-selection screen —
-  // distinct from /animelib/episode below, which picks one best dub for the
-  // in-player opt-in swap.
+  // В отличие от /animelib/episode ниже, который выбирает одну лучшую озвучку.
   scope.get('/animelib/teams', async (req: FastifyRequest, reply: FastifyReply) => {
     const token = tokenOf(req);
     if (!token) return reply.code(401).send({ error: 'auth_required' });
@@ -112,12 +109,10 @@ export function registerAnimelib(scope: FastifyInstance): void {
     return reply.send(result);
   });
 
-  // Video relay: DDoS-Guard in front of AnimeLib's CDN gates on Referer/Origin,
-  // not caller identity, so once /animelib/episode has resolved a URL, no token
-  // is needed to fetch the bytes — just the right headers, set here server-side
-  // (a browser hitting the CDN directly from our domain would send the wrong
-  // Referer and get a 403). Streamed, not buffered — episodes run 200-300MB —
-  // with Range passthrough so seeking still works.
+  // Ретрансляция видео. DDoS-Guard перед CDN смотрит на Referer и Origin, а не на
+  // того, кто пришёл, — поэтому байты тянем без токена, но с нужными заголовками.
+  // Потоком, а не в память: серия весит 200–300 МБ. Range пробрасываем, иначе
+  // сломается перемотка.
   scope.get('/animelib/stream', async (req: FastifyRequest, reply: FastifyReply) => {
     const { url } = req.query as Record<string, string>;
     if (!url || !isAllowedAnimelibVideoUrl(url)) {

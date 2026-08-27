@@ -9,9 +9,8 @@ import { animeHasEpisodes, setOverride } from '../services/animelib.js';
 import { upstreamJson } from '../upstream/client.js';
 
 /**
- * Inbound Telegram webhook — the operator's admin console. Validates the shared
- * secret, then handles inline-button taps (quick bans) and slash commands
- * (stats, journal, denylist management).
+ * Входящий вебхук Telegram — админка владельца. Проверяет общий секрет, затем
+ * разбирает нажатия инлайн-кнопок и слэш-команды.
  */
 
 function humanUptime(ms: number): string {
@@ -73,17 +72,13 @@ async function handleCallback(cb: any): Promise<void> {
   }
 }
 
-// Matches an animelib.org anime page link and captures its numeric id and
-// slug — e.g. "https://animelib.org/ru/anime/23663--gachiakuta-anime".
-// Manga/ranobe links on the same domain are ignored; this integration is
-// anime-only end to end (see services/animelib.ts).
+// Ссылка на страницу аниме animelib.org: забираем id и slug. Ссылки на мангу и
+// ранобэ с того же домена игнорируем — интеграция только про аниме.
 const ANIMELIB_LINK_RE = /animelib\.org\/(?:[a-z]{2}\/)?anime\/(\d+)--([a-z0-9-]+)/i;
 
-// AnimeLib slugs are romaji/English-derived (e.g. "gachiakuta-anime"), close
-// enough to a release's title_original to drive Anixart's own search — which,
-// unlike AnimeLib's, doesn't hide anything. Stripping the trailing type
-// marker and swapping hyphens for spaces turns the slug back into something
-// closer to a real title.
+// Slug у AnimeLib собран из ромадзи и достаточно близок к оригинальному
+// названию, чтобы скормить его поиску Anixart — тот, в отличие от AnimeLib,
+// ничего не прячет. Убираем хвостовой маркер типа и меняем дефисы на пробелы.
 function deriveSearchQuery(slug: string): string {
   return slug.replace(/-(anime|tv|ova|ona|movie|special)$/i, '').replace(/-/g, ' ').trim();
 }
@@ -103,12 +98,9 @@ function extractSearchResults(data: unknown): ReleaseSearchItem[] {
 }
 
 /**
- * Lets the admin paste a bare animelib.org anime link into the bot chat
- * instead of clicking through the site's own override field. No automatic
- * matching happens here either (see services/animelib.ts on why that was
- * dropped) — the id is confirmed to be real, a search query is *derived*
- * from the link's own slug, and the admin still picks the right release
- * from Anixart's search results by hand via inline buttons.
+ * Позволяет кинуть боту голую ссылку на AnimeLib вместо похода в поле пина на
+ * сайте. Автоматического сопоставления здесь нет: проверяем, что тайтл реален,
+ * из slug выводим поисковый запрос, а нужный релиз владелец выбирает руками.
  */
 async function handleAnimelibLink(text: string): Promise<void> {
   const match = text.match(ANIMELIB_LINK_RE);
@@ -154,12 +146,9 @@ async function handleAnimelibLink(text: string): Promise<void> {
 
 async function handleCommand(text: string): Promise<void> {
   const [cmd, arg] = text.trim().split(/\s+/);
-  // An all-digits arg could be an account id OR a login that happens to be
-  // numeric — Anixart doesn't forbid numeric usernames. Guessing "digits ⇒
-  // id" silently bans/unbans the wrong account when it's actually a numeric
-  // login. banAccount/unbanAccount check id and login independently (each
-  // only matches its own exact field), so targeting both when numeric is
-  // unambiguous rather than a guess.
+  // Аргумент из одних цифр может быть и id, и логином: числовые логины Anixart
+  // не запрещает. Догадка «цифры значит id» забанила бы не того, поэтому при
+  // числовом аргументе бьём сразу по обоим полям — каждое сверяется точно.
   const numericId = arg && /^\d+$/.test(arg) ? Number(arg) : undefined;
 
   switch (cmd) {
@@ -269,16 +258,14 @@ export function registerTelegram(scope: FastifyInstance): void {
       return reply.code(403).send();
     }
 
-    // Acknowledge immediately; process the update out of band.
+    // Отвечаем сразу, обработку делаем отдельно.
     reply.code(200).send();
 
     const update = (req.body ?? {}) as any;
     try {
-      // The webhook secret only proves the request came from Telegram's servers —
-      // it says nothing about WHO sent the message. Without this check, anyone who
-      // finds the bot and opens a chat with it could issue admin commands (bans,
-      // session/login dumps). Only the configured owner chat may issue commands —
-      // the same chat TELEGRAM_CHAT_ID already sends notifications to.
+      // Секрет вебхука подтверждает только то, что запрос пришёл от Telegram, но
+      // ничего не говорит об отправителе. Без этой проверки админские команды мог
+      // бы отдавать любой, кто нашёл бота. Команды принимаем лишь из чата владельца.
       const senderChatId = String(
         update.callback_query?.message?.chat?.id ?? update.message?.chat?.id ?? '',
       );
@@ -292,7 +279,7 @@ export function registerTelegram(scope: FastifyInstance): void {
       if (text.startsWith('/')) await handleCommand(text);
       else if (text) await handleAnimelibLink(text);
     } catch {
-      // Never throw out of a webhook handler.
+      // Из обработчика вебхука наружу ничего не бросаем.
     }
   });
 }

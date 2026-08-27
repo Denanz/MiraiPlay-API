@@ -3,10 +3,10 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
- * Generic TTL cache: in-memory map with optional disk persistence and in-flight
- * de-duplication. `wrap` returns a cached value or runs the producer once even
- * under concurrent calls for the same key. Used for slow, idempotent lookups
- * (e.g. Shikimori) — never for per-user response bodies.
+ * Кэш с временем жизни: карта в памяти, при желании с записью на диск, плюс
+ * склейка одновременных промахов. `wrap` отдаёт сохранённое либо запускает
+ * производителя ровно один раз. Для медленных идемпотентных запросов —
+ * персональные ответы сюда класть нельзя.
  */
 
 interface Entry<T> {
@@ -16,9 +16,9 @@ interface Entry<T> {
 
 export interface TtlCacheOptions {
   ttlMs: number;
-  /** Directory for disk persistence (survives restarts). Omit for memory-only. */
+  /** Каталог для записи на диск, переживающей перезапуск. Без него — только память. */
   dir?: string;
-  /** Max in-memory entries before the oldest is dropped. */
+  /** Сколько записей держим в памяти, прежде чем выкинуть самую старую. */
   maxMemory?: number;
 }
 
@@ -59,7 +59,7 @@ export class TtlCache<T> {
       }
       await unlink(file).catch(() => {});
     } catch {
-      // miss
+      // промах
     }
     return undefined;
   }
@@ -73,14 +73,14 @@ export class TtlCache<T> {
       await mkdir(this.opts.dir, { recursive: true });
       await writeFile(file, JSON.stringify(entry));
     } catch {
-      // Disk persistence is a bonus; the memory entry still stands.
+      // Не записалось на диск — запись в памяти всё равно осталась.
     }
   }
 
   /**
-   * Return the cached value or run `produce`, de-duplicating concurrent misses.
-   * `ttl` may override the default, or compute one from the produced value
-   * (e.g. shorter TTL for empty/negative results so they get retried sooner).
+   * Отдаёт сохранённое либо зовёт `produce`, склеивая одновременные промахи.
+   * `ttl` можно задать числом или вычислить по результату — например, дать
+   * пустому ответу срок покороче.
    */
   async wrap(
     key: string,

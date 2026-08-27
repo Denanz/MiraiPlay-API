@@ -4,9 +4,9 @@ import { denylist } from '../services/blocklist.js';
 import { telemetry } from '../services/monitor.js';
 
 /**
- * Per-scope request guard: traffic accounting, a fixed-window rate limiter, the
- * access denylist and the gateway-key lock. Installed as a preHandler so the
- * (already parsed) body is available for token extraction.
+ * Сторож запросов: учёт трафика, лимит частоты с фиксированным окном, список
+ * блокировок и замок на ключ шлюза. Стоит preHandler'ом, чтобы тело запроса уже
+ * было разобрано и из него можно было достать токен.
  */
 
 interface Window {
@@ -33,7 +33,7 @@ function pathOnly(req: FastifyRequest): string {
   return q === -1 ? req.url : req.url.slice(0, q);
 }
 
-/** Public endpoints that cannot present the gateway key (iframes, <img>, sockets). */
+/** Публичные ручки, которые не могут предъявить ключ шлюза: iframe, <img>, сокеты. */
 function keyExempt(method: string, path: string): boolean {
   if (method === 'OPTIONS') return true;
   if (path === '/api/v1/tg/webhook') return true;
@@ -41,9 +41,8 @@ function keyExempt(method: string, path: string): boolean {
   if (method === 'GET' && path === '/api/v1/img') return true;
   if (method === 'GET' && path === '/api/v1/player') return true;
   if (method === 'GET' && path.startsWith('/api/v1/player/screenshots/file/')) return true;
-  // Loaded via <video src>, which can't attach custom headers. Safe to exempt —
-  // the route itself only relays a URL already validated against the AnimeLib
-  // video CDN allowlist, same posture as /player above.
+  // Грузится через <video src>, а он не умеет слать свои заголовки. Исключение
+  // безопасно: роут отдаёт только уже проверенный по списку адрес CDN.
   if (method === 'GET' && path === '/api/v1/animelib/stream') return true;
   // Хроника носит собственный ключ (X-Timeline-Key) и проверяет его сама —
   // MiraiTimeline ходит во все три трекера одним заголовком, а не двумя.
@@ -55,8 +54,8 @@ export function installGuard(scope: FastifyInstance): void {
   scope.addHook('preHandler', async (req: FastifyRequest, reply: FastifyReply) => {
     const path = pathOnly(req);
 
-    // Telegram authenticates with its own secret header; the gateway lock and
-    // denylist don't apply to its callbacks.
+    // Telegram доказывает себя своим заголовком, замок и список блокировок к нему
+    // не применяются.
     if (path === '/api/v1/tg/webhook') return;
 
     const ip = req.ip || 'unknown';
@@ -64,8 +63,8 @@ export function installGuard(scope: FastifyInstance): void {
 
     const token = extractToken(req);
 
-    // Behind an SNI passthrough every client shares one source IP, so the user
-    // token (when present) is the fair rate-limit key.
+    // За SNI-проксированием у всех клиентов один исходный IP, поэтому честный
+    // ключ для лимита — токен пользователя, когда он есть.
     const key = token ? `t:${token}` : `i:${ip}`;
     const now = Date.now();
     let window = windows.get(key);
@@ -85,7 +84,7 @@ export function installGuard(scope: FastifyInstance): void {
     telemetry.touchSession(token, ip);
 
     if (settings.GATEWAY_KEY && !keyExempt(req.method, path)) {
-      // Accept the new header name and the legacy one for drop-in migration.
+      // Принимаем и новое имя заголовка, и старое.
       const provided = req.headers['x-gateway-key'] ?? req.headers['x-proxy-key'];
       if (provided !== settings.GATEWAY_KEY) {
         return reply.code(403).send({ error: 'forbidden' });

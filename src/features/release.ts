@@ -26,9 +26,9 @@ import { getReleaseRating } from '../services/ratings.js';
 import { sendTo } from '../services/notifier.js';
 
 /**
- * GET /release/:id — relay the upstream release card, then (best-effort) enrich
- * the note with Shikimori data, estimated watch time and related titles. Unlike
- * a plain interceptor this route is async, so it lives outside the proxy.
+ * GET /release/:id — отдаём карточку релиза от upstream и по возможности
+ * дополняем её данными Shikimori, оценкой времени просмотра и связанными
+ * тайтлами. Роут асинхронный, поэтому живёт отдельно от прокси.
  */
 
 function watchTimeNote(release: any): string | null {
@@ -81,7 +81,7 @@ async function shikimoriNote(release: any): Promise<string | null> {
 async function enrich(release: any): Promise<void> {
   const originalNote: string | null = release.note || null;
 
-  // Related list — both attached as structured data and woven into the note.
+  // Связанные тайтлы: и структурой, и текстом в примечании.
   let related: ShikiRelated[] = [];
   try {
     const anime = await findAnime({
@@ -91,16 +91,16 @@ async function enrich(release: any): Promise<void> {
     });
     if (anime) {
       related = await relatedAnime(anime.id);
-      // Trailer / PV from Shikimori videos (prefer an actual PV).
+      // Трейлер из видео Shikimori, предпочитаем настоящий PV.
       const vids = anime.videos ?? [];
       const pv = vids.find((v) => v.kind === 'pv') || vids.find((v) => v.kind === 'op') || vids[0];
       if (pv?.url) release.trailer = { url: pv.url, image: pv.imageUrl || null, name: pv.name || null };
-      // Franchise watch order (chronological), when this title is part of a chain.
+      // Порядок просмотра франшизы, если тайтл — часть цепочки.
       const chain = await franchiseChain(anime.id);
       if (chain.length > 1) release.watch_order = chain;
     }
   } catch {
-    // ignore
+    // молча пропускаем
   }
   release.related_anime = related;
 
@@ -211,7 +211,7 @@ export function registerRelease(scope: FastifyInstance): void {
     return reply.send({ scores: await scoresForTitles(list) });
   });
 
-  // ── Personal per-anime diary (review text + score) ──
+  // ── Личный дневник по тайтлу: текст отзыва и оценка ──
   const tokenOf = (req: FastifyRequest): string => {
     const q = req.query as Record<string, unknown>;
     if (typeof q.token === 'string') return q.token;
@@ -253,11 +253,9 @@ export function registerRelease(scope: FastifyInstance): void {
     return reply.send({ ok: true });
   });
 
-  // ── Telegram chat id for new-episode notifications (per user) ──
-  // The account id anchors the subscriber so each friend gets episodes from
-  // their own watch lists — never a client-supplied id, which would let any
-  // caller with a non-empty token string read or overwrite another account's
-  // notification chat by guessing/enumerating its numeric id.
+  // ── Telegram-чат для уведомлений о новых сериях ──
+  // Подписчика привязываем к id аккаунта, а не к присланному клиентом: иначе по
+  // перебору чисел можно было бы прочитать или перезаписать чужой чат.
   //
   // resolveUserId переехал в services/identity.ts: тем же стабильным id теперь
   // адресуются и пользовательские данные (скриншоты, оценки, прогресс, дневник),
@@ -405,7 +403,7 @@ export function registerRelease(scope: FastifyInstance): void {
     const clean = String(chatId ?? '').trim();
     if (!/^-?\d{3,20}$/.test(clean)) return reply.code(400).send({ ok: false, error: 'bad_chat_id' });
     registerSubscriber(await resolveUserId(token), token, clean);
-    // Confirm the bot can actually reach this chat (needs a prior /start).
+    // Проверяем, что бот вообще может писать в этот чат — нужен предварительный /start.
     const delivered = await sendTo(
       clean,
       '✅ <b>MiraiPlay</b>: уведомления о новых сериях подключены.',

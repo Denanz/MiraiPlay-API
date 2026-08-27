@@ -3,10 +3,9 @@ import { join } from 'node:path';
 import { settings } from '../config/settings.js';
 
 /**
- * Cross-device watch progress. Like the screenshot gallery, a user is addressed
- * by an opaque HMAC "bucket" of their token — never a client-supplied id — so a
- * saved position can't be read or overwritten for someone else. One file per
- * bucket holds the most-recent position per (release, source, episode).
+ * Прогресс просмотра, общий для всех устройств. Как и галерея, адресуется
+ * bucket'ом, а не присланным id, иначе чужую позицию можно было бы прочитать или
+ * перезаписать. Один файл на bucket хранит последнюю позицию по каждой серии.
  */
 
 export interface ProgressEntry {
@@ -63,7 +62,7 @@ export function getProgress(
   return read(b).find((x) => keyOf(x.releaseId, x.sourceId, x.episode) === key) ?? null;
 }
 
-/** In-progress episodes (started but not ~finished), newest first. */
+/** Начатые, но недосмотренные серии, свежие первыми. */
 export function listContinue(bucket: string, limit = 60): ProgressEntry[] {
   const b = safeBucket(bucket);
   if (!b) return [];

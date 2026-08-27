@@ -1,8 +1,8 @@
 import overrides from '../../data/overrides.toggles.json';
 
 /**
- * GET /config/toggles — shallow-merge our overrides on top of the upstream
- * payload (overrides win). Used to disable in-app updates and inject notices.
+ * GET /config/toggles — накладываем свои значения поверх ответа upstream.
+ * Так выключаются встроенные обновления и подставляются объявления.
  */
 export function applyToggleOverrides(data: any): any {
   if (!data || typeof data !== 'object') return data;

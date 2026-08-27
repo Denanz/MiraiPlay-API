@@ -6,20 +6,18 @@ import { denylist } from './blocklist.js';
 import { sendTo } from './notifier.js';
 
 /**
- * New-episode watcher, multi-user. Each subscriber is one friend who connected
- * their Telegram on the Settings page: we keep their Anixart token (to read
- * *their* watch lists) alongside *their* chat id and a per-subscriber "seen"
- * snapshot. Every pass diffs each subscriber's lists independently and pings
- * their own chat — so everyone gets episodes from their own account.
+ * Слежение за новыми сериями, у каждого своё. Подписчик — это тот, кто привязал
+ * Telegram в настройках: храним его токен Anixart (чтобы читать его же списки),
+ * чат и снимок уже виденного. Каждый проход сравнивает списки подписчиков
+ * независимо и пишет каждому в свой чат.
  *
- * The registry is keyed by chat id (the unique delivery target); the account id
- * is stored inside so a token refreshed elsewhere (e.g. the player) can be
- * matched back to the right subscriber.
+ * Ключ реестра — id чата, а id аккаунта лежит внутри: так обновившийся в другом
+ * месте токен находит своего подписчика.
  */
 
 const ROOT = join(settings.STATE_DIR, 'notify');
 const SUBS_FILE = join(ROOT, 'subscribers.json');
-// Legacy single-user files, migrated once into a subscriber on first load.
+// Файлы старой однопользовательской схемы, переносятся в подписчика при первой загрузке.
 const LEGACY_TOKEN = join(ROOT, 'token');
 const LEGACY_CHAT = join(ROOT, 'chatid');
 const LEGACY_SEEN = join(ROOT, 'seen.json');
@@ -57,12 +55,12 @@ function load(): Registry {
     const parsed = JSON.parse(readFileSync(SUBS_FILE, 'utf8')) as Registry;
     if (parsed && typeof parsed === 'object') return parsed;
   } catch {
-    // No registry yet — try to import the old single-user state.
+    // Реестра ещё нет — пробуем поднять старое состояние.
   }
   return migrateLegacy();
 }
 
-/** Best-effort import of the pre-multi-user notifier into one subscriber. */
+/** Перенос старого однопользовательского состояния в одного подписчика. */
 function migrateLegacy(): Registry {
   try {
     const token = readFileSync(LEGACY_TOKEN, 'utf8').trim();
@@ -72,11 +70,11 @@ function migrateLegacy(): Registry {
     try {
       seen = JSON.parse(readFileSync(LEGACY_SEEN, 'utf8')) as Record<string, number>;
     } catch {
-      // fresh baseline is fine
+      // чистый снимок — нормально
     }
     const sub: Subscriber = {
-      // Owner id is unknown at boot (no login seen yet); it gets filled in the
-      // first time this user re-saves their chat on the Settings page.
+      // При старте id владельца неизвестен — заполнится, когда он пересохранит
+      // чат в настройках.
       userId: denylist.getOwner(token)?.id ?? 0,
       token,
       chatId,
@@ -96,14 +94,14 @@ function persist(reg: Registry = registry): void {
     mkdirSync(ROOT, { recursive: true });
     writeFileSync(SUBS_FILE, JSON.stringify(reg, null, 2));
   } catch {
-    // ignore — in-memory registry still drives this uptime
+    // не страшно: в памяти реестр всё равно живёт
   }
 }
 
 /**
- * Connect (or update) a subscriber from the Settings page. Keeps the "seen"
- * baseline across re-saves and drops any stale chat the same account used
- * before, so one account maps to exactly one chat.
+ * Подключение или обновление подписчика из настроек. Снимок виденного при
+ * пересохранении не сбрасывается, а прежний чат этого же аккаунта убирается —
+ * один аккаунт держит ровно один чат.
  */
 export function registerSubscriber(userId: number, token: string, chatId: string): void {
   if (!CHAT_RE.test(chatId)) return;
@@ -124,10 +122,9 @@ export function registerSubscriber(userId: number, token: string, chatId: string
 }
 
 /**
- * Opportunistically refresh a subscriber's token from their authenticated
- * traffic (called by the player). Only updates an existing subscriber — never
- * creates one — and needs the token→account binding from sign-in to know whose
- * token it is.
+ * Освежает токен подписчика из его же авторизованного трафика. Только обновляет
+ * существующего, никогда не создаёт нового, и опирается на связку токен→аккаунт
+ * из момента входа.
  */
 export function setNotifyToken(token: string): void {
   if (!token) return;
@@ -144,7 +141,7 @@ export function setNotifyToken(token: string): void {
   if (changed) persist();
 }
 
-/** The chat id this account saved, for prefilling the Settings input. */
+/** Сохранённый чат аккаунта — чтобы подставить его в поле настроек. */
 /** Список тайтлов, по которым пользователь ждёт полного выхода. */
 export function getAwaitFull(userId: number): string[] {
   if (!userId) return [];
@@ -195,7 +192,7 @@ async function fetchList(listId: number, token: string): Promise<ListItem[]> {
   return out;
 }
 
-/** One pass for a single subscriber: diff their lists against their snapshot. */
+/** Один проход по подписчику: сравнить его списки со снимком. */
 async function checkSubscriber(sub: Subscriber): Promise<{ checked: number; notified: number }> {
   const first = Object.keys(sub.seen).length === 0; // establish baseline silently
   let checked = 0;
@@ -247,7 +244,7 @@ async function checkSubscriber(sub: Subscriber): Promise<{ checked: number; noti
   return { checked, notified };
 }
 
-/** One pass across every subscriber. */
+/** Один проход по всем подписчикам. */
 export async function checkNewEpisodes(): Promise<{ checked: number; notified: number }> {
   if (!settings.TELEGRAM_BOT_TOKEN) return { checked: 0, notified: 0 };
   let checked = 0;
@@ -266,7 +263,7 @@ function escapeTg(v: string): string {
   return v.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-/** Start the periodic watcher (baseline after 1 min, then every 2 h). */
+/** Запуск слежения: снимок через минуту, дальше раз в два часа. */
 export function startEpisodeWatcher(): void {
   setTimeout(() => void checkNewEpisodes().catch(() => {}), 60_000);
   setInterval(() => void checkNewEpisodes().catch(() => {}), 2 * 60 * 60_000);

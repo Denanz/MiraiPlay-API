@@ -6,14 +6,12 @@ import sharp from 'sharp';
 import { settings } from '../config/settings.js';
 
 /**
- * Image relay. Posters and screenshots are pulled through the edge node rather
- * than the browser hitting the CDNs directly, so a visitor's real IP and Referer
- * never reach upstream infrastructure. Hosts are restricted to a fixed suffix
- * allowlist to keep this from becoming an open image proxy.
+ * Ретранслятор картинок: постеры и скриншоты идут через нас, а не напрямую с
+ * CDN, чтобы реальный IP и Referer посетителя туда не утекали. Хосты ограничены
+ * списком суффиксов, иначе это был бы открытый прокси для картинок.
  *
- * Optionally (IMG_OPTIMIZE) transforms on the fly: downscale to `?w=` and/or
- * serve WebP when the client accepts it. Transformed bytes are cached on disk
- * keyed by url+params; any transform failure falls back to the original image.
+ * При IMG_OPTIMIZE на лету уменьшает по `?w=` и отдаёт WebP, если клиент его
+ * принимает. Результат кэшируется на диске; при любой ошибке отдаём оригинал.
  */
 
 const ALLOWED_SUFFIXES = [
@@ -63,7 +61,7 @@ export function registerMedia(scope: FastifyInstance): void {
       return reply.code(400).send();
     }
 
-    // ── decide transform ──
+    // ── решаем, что преобразуем ──
     const accept = String(req.headers.accept ?? '');
     const acceptsWebp = accept.includes('image/webp');
     const fmtParam = String(q.fmt ?? 'auto').toLowerCase();
@@ -90,19 +88,19 @@ export function registerMedia(scope: FastifyInstance): void {
         .header('vary', 'Accept')
         .send(bytes);
 
-    // ── serve from disk cache if we have this exact variant ──
+    // ── отдаём с диска, если такой вариант уже есть ──
     if (transform) {
       const file = cacheKey(url.toString(), width, quality, outFmt);
       if (existsSync(file)) {
         try {
           return sendImage(readFileSync(file), CT[outFmt]);
         } catch {
-          // fall through and re-fetch
+          // не вышло — идём качать заново
         }
       }
     }
 
-    // ── fetch upstream ──
+    // ── качаем с upstream ──
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 12000);
     try {
@@ -119,7 +117,7 @@ export function registerMedia(scope: FastifyInstance): void {
       }
       const original = Buffer.from(await upstream.arrayBuffer());
 
-      // Skip transform for animated GIFs (would lose animation) or when disabled.
+      // Анимированные GIF не трогаем — потеряется анимация.
       if (!transform || srcType.includes('gif')) {
         return sendImage(original, srcType);
       }
@@ -136,11 +134,11 @@ export function registerMedia(scope: FastifyInstance): void {
           mkdirSync(CACHE_DIR, { recursive: true });
           writeFileSync(cacheKey(url.toString(), width, quality, outFmt), out);
         } catch {
-          // cache write is best-effort
+          // запись в кэш не критична
         }
         return sendImage(out, CT[outFmt]);
       } catch {
-        // Transform failed (corrupt/unsupported) — serve the original untouched.
+        // Преобразование не удалось — отдаём оригинал как есть.
         return sendImage(original, srcType);
       }
     } catch {

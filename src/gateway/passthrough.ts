@@ -3,9 +3,8 @@ import { callUpstream, passableHeaders, relayHeaders, UpstreamError } from '../u
 import { pickInterceptor } from './interceptors/index.js';
 
 /**
- * Catch-all reverse proxy. Anything not claimed by a dedicated feature route
- * lands here, is relayed to the upstream API, and — if an interceptor matches —
- * has its JSON body rewritten before being returned.
+ * Прокси на всё остальное: что не разобрали свои роуты, уходит в upstream, а на
+ * обратном пути тело при совпадении правила переписывается.
  */
 
 function upstreamPath(req: FastifyRequest): string {
@@ -59,7 +58,7 @@ async function handle(req: FastifyRequest, reply: FastifyReply): Promise<void> {
       try {
         parsed = JSON.parse(upstream.body.toString('utf8'));
       } catch {
-        // A `force` interceptor still applies over an empty/non-JSON body.
+        // Правило с `force` сработает и поверх пустого тела.
         parsed = interceptor.force ? {} : null;
       }
       if (parsed !== null) {

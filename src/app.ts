@@ -19,8 +19,8 @@ import { registerTimeline } from './features/timeline.js';
 import { registerPassthrough } from './gateway/passthrough.js';
 
 /**
- * Assemble the Fastify instance: global plugins, the health probe, and the
- * /api/v1 scope (guard + feature routes + the catch-all proxy).
+ * Сборка Fastify: общие плагины, проверка здоровья и область /api/v1 —
+ * сторож, свои роуты и прокси на всё остальное.
  */
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -40,7 +40,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(formbody);
   await app.register(websocket);
 
-  // Buffer any body we don't otherwise parse so the proxy can forward it as-is.
+  // Тело, которое не разбираем сами, буферизуем — прокси передаст его как есть.
   app.addContentTypeParser('*', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
 
   app.get('/health', async () => ({ status: 'ok', service: 'miraihub' }));
@@ -48,7 +48,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(
     async (scope) => {
       installGuard(scope);
-      // Dedicated routes first; find-my-way prefers them over the wildcard proxy.
+      // Свои роуты объявляем первыми: маршрутизатор предпочтёт их прокси.
       registerAuth(scope);
       registerTelegram(scope);
       registerKodik(scope);

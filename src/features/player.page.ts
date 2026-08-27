@@ -1,14 +1,8 @@
 /**
- * Server-rendered HTML5 player page. Independent implementation covering the
- * same capabilities as the legacy player: HLS playback, quality switching,
- * resume/progress sync, screenshot capture and the Watch Together postMessage
- * bridge. The `__wt:*` message envelope is kept compatible with the React host.
- *
- * The control panel reproduces the author's original AnixartEX design (the
- * frosted "pill" controls, custom quality dropdown, dedicated mobile UI,
- * hotkeys modal, cast button, saved-position marker, tap-seek ripple), with
- * three additions folded in: playback speed, persisted preferences and a
- * crossOrigin screenshot fix.
+ * Страница плеера, отдаётся с сервера целиком: HLS, качество, синк прогресса,
+ * скриншоты и мост Watch Together. Конверт сообщений `__wt:*` совместим с
+ * React-хостом. Три скина в одном DOM — legacy, mobile и modern, — переключает
+ * только CSS.
  */
 
 export interface PlayerPageData {
@@ -27,9 +21,8 @@ export interface PlayerPageData {
   malId?: number;
   design?: 'legacy' | 'modern';
   titleOriginal?: string;
-  /** Real Anixart source id to report the episode watched under when
-   *  `sourceId` isn't a real one (AnimeLib's -1 sentinel, unknown to
-   *  Anixart's own account — see /player/progress). */
+  /** Настоящий source id для отметки о просмотре, когда `sourceId` ненастоящий
+   *  (у AnimeLib это -1, Anixart такого не знает). */
   markWatchedSourceId?: string;
 }
 
@@ -81,15 +74,14 @@ export function buildPlayerPage(data: PlayerPageData): string {
     body { font-family: "Inter", "Segoe UI", system-ui, sans-serif; color: var(--text); }
     .stage { position: fixed; inset: 0; background: #000; cursor: none; }
     .stage.cursor-visible { cursor: default; }
-    /* Hidden until the first frame decodes — avoids Android WebView's grey
-       "play button" placeholder for an as-yet-empty <video>. */
+    /* Прячем до первого декодированного кадра: иначе Android WebView рисует
+       серую заглушку с play-кнопкой. */
     video { width: 100%; height: 100%; display: block; object-fit: contain; opacity: 0; transition: opacity 0.2s ease; }
     video.ready { opacity: 1; }
     .overlay { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s ease; z-index: 10; }
     .overlay.visible { opacity: 1; pointer-events: auto; }
-    /* Modern skin doesn't use the legacy overlay for interaction — shared code (video play/pause,
-       keydown, etc.) still toggles .visible on it, and its z-index (10) sits above .md-shell (6),
-       so left alone it would swallow every click across the whole viewport. */
+    /* Modern не использует legacy-оверлей, но общий код всё равно вешает на него
+       .visible. z-index 10 против 6 у .md-shell — иначе он съедал бы все клики. */
     body.modern .overlay { pointer-events: none !important; opacity: 0 !important; }
     .controls { position: absolute; bottom: 0; left: 0; right: 0; padding: 0 20px 28px; display: flex; flex-direction: column; align-items: center; }
     .progress-wrap { width: 100%; height: 16px; display: flex; align-items: center; cursor: pointer; }
@@ -102,10 +94,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .progress-saved.visible { display: block; }
     .progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; margin-top: -6px; background: #fff; border-radius: 50%; transform: translateX(-50%) scale(0); transition: transform 0.15s cubic-bezier(.34,1.4,.64,1); z-index: 4; box-shadow: 0 0 0 3px rgba(196,165,253,0.3), 0 2px 8px rgba(0,0,0,0.4); }
     .progress-wrap:hover .progress-thumb { transform: translateX(-50%) scale(1); }
-    /* Watch Together: guest can't drive playback — dim the controls that would
-       otherwise suggest they can. Clicks still fire (togglePlay/seekBy/
-       seekToRatio show a toast instead of silently doing nothing), so this
-       stays a visual cue, not a hard disable. */
+    /* Watch Together: гость не управляет воспроизведением. Только приглушаем —
+       клики срабатывают и показывают тост, а не молчат. */
     body.wt-locked #progress-wrap, body.wt-locked #m-progress-wrap, body.wt-locked #md-track { opacity: 0.5; cursor: not-allowed; }
     body.wt-locked #btn-play, body.wt-locked #m-play, body.wt-locked #md-play { opacity: 0.4; }
     .pill-wrap { display: flex; flex-direction: column; align-items: stretch; background: linear-gradient(180deg, rgba(17,13,27,0.86), rgba(10,8,17,0.86)); backdrop-filter: blur(24px) saturate(1.6); -webkit-backdrop-filter: blur(24px) saturate(1.6); border: 1px solid rgba(255,255,255,0.09); border-radius: 22px; padding: 9px 15px 7px; box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06); gap: 4px; transition: border-color 0.2s; }
@@ -162,8 +152,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .error-panel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #f5b0b0; background: rgba(0,0,0,0.6); z-index: 8; font-size: 0.9rem; }
     .error-panel.visible { display: flex; }
 
-    /* ── Floating skip button (sits bottom-right; shown only while the control
-          panel is up — visibility driven by reflectSkip() in JS) ── */
+    /* ── Плавающая кнопка скипа, правый нижний угол. Видимость — reflectSkip() ── */
     #skip-fab {
       position: fixed;
       right: calc(16px + env(safe-area-inset-right, 0px));
@@ -181,10 +170,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
     #skip-fab:active { background: rgba(167,139,250,0.18); }
 
     /* ── Плавающая кнопка скриншота ──
-       Правый край по центру высоты: в горизонтали это зона большого пальца, и при
-       этом свободно от кадра по центру, от субтитров внизу и от skip-fab/autonext
-       (те сидят в правом нижнем углу). В покое приглушена, чтобы не лезть в глаза
-       во время просмотра; когда панель управления поднята — становится заметной. */
+       Правый край по центру высоты: зона большого пальца в горизонтали, и там
+       свободно от субтитров и от skip-fab с autonext. */
     #shot-fab {
       position: fixed; right: calc(10px + env(safe-area-inset-right, 0px));
       top: 50%; transform: translateY(-50%);
@@ -203,7 +190,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     /* Только мобильный UI: на десктопе кадр снимается кнопкой в «таблетке» и хоткеем S. */
     body:not(.mobile) #shot-fab { display: none !important; }
 
-    /* ── Autoplay-next countdown card (Netflix-style, bottom-right) ── */
+    /* ── Карточка автоперехода к следующей серии, правый нижний угол ── */
     #autonext { position: fixed; right: calc(20px + env(safe-area-inset-right,0)); bottom: calc(84px + env(safe-area-inset-bottom,0));
       z-index: 22; display: none; flex-direction: column; gap: 9px; min-width: 210px; max-width: calc(100vw - 40px);
       background: linear-gradient(180deg, rgba(18,14,28,0.94), rgba(11,9,19,0.94)); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 13px 15px;
@@ -217,7 +204,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     #an-now { background: var(--accent-strong); color: #130d1c; }
     #an-cancel { background: rgba(255,255,255,0.1); color: #fff; }
 
-    /* ── Brightness dimmer + gesture indicator (mobile swipe) ── */
+    /* ── Затемнение и индикатор жеста (свайп на мобильном) ── */
     #dimmer { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 4; }
     #g-ind { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 23; display: none;
       align-items: center; gap: 11px; padding: 11px 16px; border-radius: 12px; background: rgba(0,0,0,0.62);
@@ -227,8 +214,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     #g-ind .g-bar { width: 100px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.25); overflow: hidden; }
     #g-ind .g-bar > i { display: block; height: 100%; background: #fff; width: 0; }
 
-    /* ── Top overlay: episode meta + immersive nav (back / next / together). The
-          desktop control "pill" is untouched; this only lives in the top strip. ── */
+    /* ── Верхняя полоса: инфо о серии и навигация. Десктопной «таблетки» не касается. ── */
     .player-title {
       position: absolute; top: 0; left: 0; right: 0; z-index: 3; pointer-events: none;
       display: flex; align-items: flex-start; gap: 10px;
@@ -259,7 +245,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .pt-act.accent { color: var(--accent); border-color: rgba(167,139,250,0.4); }
     .pt-act[hidden] { display: none; }
 
-    /* ── Mobile / touch ── */
+    /* ── Мобильный / тач ── */
     @media (hover: none), (max-width: 640px) {
       .stage { cursor: default !important; }
       .controls { padding: 0 8px calc(12px + env(safe-area-inset-bottom)); }
@@ -279,14 +265,14 @@ export function buildPlayerPage(data: PlayerPageData): string {
       .saved-badge { bottom: 84px; }
       .hk-box { min-width: 0; width: calc(100% - 40px); }
     }
-    /* Tap-seek ripple feedback */
+    /* Отклик на двойной тап перемотки */
     .tap-fx { position: fixed; top: 50%; width: 64px; height: 64px; margin-top: -32px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.8rem; font-weight: 600;
       background: rgba(167,139,250,0.22); opacity: 0; pointer-events: none; z-index: 12; transition: opacity 0.4s; }
     .tap-fx.show { opacity: 1; }
     .tap-fx svg { width: 30px; height: 30px; fill: #fff; }
 
-    /* ── Dedicated mobile player UI (immersive, matches the native-app design) ── */
+    /* ── Выделенный мобильный интерфейс плеера ── */
     .m-controls { display: none; position: absolute; inset: 0; flex-direction: column; justify-content: space-between; pointer-events: none; }
     body.mobile .controls { display: none; }
     body.mobile .player-title { display: none; }
@@ -298,7 +284,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .m-icon svg { width: 23px; height: 23px; fill: #fff; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.65)); }
     .m-icon:disabled { opacity: 0.32; }
     .m-icon[hidden] { display: none; }
-    /* top row: back · title/sub · quality · HW · sparkle · settings */
+    /* верхний ряд: назад · название · качество · HW · sparkle · настройки */
     .m-top { display: flex; align-items: flex-start; gap: 4px;
       padding: calc(12px + env(safe-area-inset-top,0)) calc(18px + env(safe-area-inset-right,0)) 14px calc(18px + env(safe-area-inset-left,0));
       background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent); }
@@ -312,20 +298,15 @@ export function buildPlayerPage(data: PlayerPageData): string {
       -webkit-tap-highlight-color: transparent; cursor: pointer; text-shadow: 0 1px 3px rgba(0,0,0,0.65); white-space: nowrap; }
     .m-badge { color: #fff; font-size: 0.9rem; font-weight: 700; padding: 10px 6px; opacity: 0.9; letter-spacing: 0.02em;
       text-shadow: 0 1px 3px rgba(0,0,0,0.65); }
-    /* center: prev episode · play · next episode */
-    /* Absolutely centered so the play/pause button lands in the true geometric
-       centre of the video — i.e. inside the loading spinner (which is also
-       inset:0 centred). Keeping it in the flex flow pushed it above centre
-       because the bottom bar+scrubber are taller than the top bar. */
+    /* центр: предыдущая · play · следующая */
+    /* Абсолютное центрирование, чтобы play/pause попадал в геометрический центр
+       кадра — там же, где спиннер. В потоке flex его тянет вверх. */
     .m-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 52px; pointer-events: none; }
     .m-center > * { pointer-events: auto; }
-    /* Bar + scrubber grouped so the column pins them to the bottom edge while
-       .m-center floats free at true centre. */
-    /* column-reverse ставит скраббер НАД рядом иконок. Это не косметика: раньше
-       .m-scrub был нижним элементом, и его 30px-зона касания попадала прямо в полосу
-       жестов Android — свайп вверх «выйти из приложения» перематывал серию. Кнопки
-       такой проблемы не имеют (реагируют на тап, а не на drag), поэтому внизу
-       безопаснее держать именно их. */
+    /* Бар и скраббер в одной колонке у нижнего края, .m-center висит отдельно. */
+    /* column-reverse держит скраббер НАД иконками. Внизу ему нельзя: 30px зоны
+       касания попадают в полосу жестов Android, и свайп «выйти из приложения»
+       перематывает серию. Кнопки реагируют на тап, им там безопасно. */
     .m-bottom { display: flex; flex-direction: column-reverse;
       background: linear-gradient(to top, rgba(0,0,0,0.6), transparent); }
     .m-bigplay { width: 64px; height: 64px; border-radius: 50%; background: transparent; border: 0; color: #fff;
@@ -335,17 +316,17 @@ export function buildPlayerPage(data: PlayerPageData): string {
       display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; cursor: pointer; }
     .m-cbtn svg { width: 30px; height: 30px; fill: #fff; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6)); }
     .m-cbtn:disabled { opacity: 0.3; }
-    /* bottom icon row: lock · rotate · speed  ···  skip · fullscreen */
+    /* нижний ряд: замок · поворот · скорость  ···  скип · фуллскрин */
     .m-bar { display: flex; align-items: center; justify-content: space-between;
       padding: 0 calc(20px + env(safe-area-inset-right,0)) calc(8px + env(safe-area-inset-bottom,0)) calc(20px + env(safe-area-inset-left,0)); }
     .m-bar-left, .m-bar-right { display: flex; align-items: center; gap: 4px; }
     .m-speed-lbl { position: absolute; right: 2px; bottom: 4px; font-size: 0.5rem; font-weight: 800; color: #fff;
       text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
-    /* On-screen speed/quality removed — they live only in the settings sheet (⚙). */
+    /* Скорость и качество живут только в листе настроек. */
     #m-quality-btn, #m-speed-btn { display: none !important; }
     .m-tag { position: absolute; right: -3px; bottom: 1px; font-size: 0.55rem; font-weight: 800; color: #fff;
       text-shadow: 0 1px 2px rgba(0,0,0,0.85); pointer-events: none; letter-spacing: -0.02em; }
-    /* scrubber row (full width) */
+    /* строка скраббера, во всю ширину */
     .m-scrub { display: flex; align-items: center; gap: 12px;
       padding: 2px calc(18px + env(safe-area-inset-right,0)) 2px calc(18px + env(safe-area-inset-left,0)); }
     .m-time { font-size: 0.82rem; color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0.95;
@@ -356,19 +337,19 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .m-progress .progress-played { background: #fff; }
     .m-progress .progress-thumb { transform: translateX(-50%) scale(1); width: 14px; height: 14px; margin-top: -7px;
       background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
-    /* lock mode: hide everything but the unlock button */
+    /* режим блокировки: видна только кнопка разблокировки */
     #m-unlock { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 56px; height: 56px; border-radius: 50%;
       background: rgba(0,0,0,0.55); border: 0; color: #fff; display: none; align-items: center; justify-content: center; z-index: 30;
       opacity: 0; transition: opacity 0.2s; -webkit-tap-highlight-color: transparent; cursor: pointer; }
     #m-unlock svg { width: 26px; height: 26px; fill: #fff; }
     body.mobile.locked .m-top, body.mobile.locked .m-center, body.mobile.locked .m-bar,
     body.mobile.locked .m-scrub, body.mobile.locked .m-sheet { display: none !important; }
-    /* While locked, keep the overlay layer painted (opacity 1) but click-through,
-       so the unlock button can show. It reveals on tap and auto-hides. */
+    /* В блокировке слой видим, но прозрачен для кликов — чтобы показалась кнопка
+       разблокировки. Появляется по тапу и прячется сама. */
     body.mobile.locked .overlay { opacity: 1; pointer-events: none; }
     body.mobile.locked #m-unlock { display: flex; pointer-events: none; }
     body.mobile.locked.unlock-peek #m-unlock { opacity: 1; pointer-events: auto; }
-    /* settings bottom-sheet (quality · speed · actions) */
+    /* нижний лист настроек: качество · скорость · действия */
     .m-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(14,11,22,0.98); border-top: 1px solid var(--border);
       border-radius: 18px 18px 0 0; padding: 14px 12px calc(20px + env(safe-area-inset-bottom,0)); display: none; flex-direction: column; gap: 2px;
       z-index: 25; max-height: 78%; overflow-y: auto; }
@@ -382,7 +363,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       -webkit-tap-highlight-color: transparent; }
     .m-sheet-actions button:active { background: rgba(255,255,255,0.12); }
 
-    /* ── Episode rating ── */
+    /* ── Оценка серии ── */
     .rate-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 55; background: rgba(0,0,0,0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .rate-modal.open { display: flex; }
     .rate-box { background: rgba(14,11,22,0.98); border: 1px solid var(--border); border-radius: 18px; padding: 26px 30px; display: flex; flex-direction: column; align-items: center; gap: 16px; min-width: 300px; max-width: calc(100% - 40px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); }
@@ -402,12 +383,9 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .btn.rate-on { color: var(--accent); }
     .m-chip.rate-on { color: var(--accent); border-color: rgba(167,139,250,0.5); }
 
-    /* ══════════════════════════ Modern skin (opt-in, /settings) ══════════════════════════
-       A third skin alongside the desktop pill and mobile .m-controls, selected by
-       CONFIG.design==='modern' (body.modern). Reuses every real function (HLS, resume,
-       progress, Aniskip, screenshot, rating, Watch Together, autoplay-next) — only the
-       chrome is new. Touch-only bits (lock/rotate/cast/gestures) are further gated by
-       body.is-touch, mirroring the existing isTouch check already used for .m-controls. */
+    /* ══════════════════════════ Скин Modern ══════════════════════════
+       Третий скин рядом с «таблеткой» и .m-controls, включается CONFIG.design==='modern'.
+       Вся логика общая, новая только обвязка. Тач-элементы дополнительно за body.is-touch. */
     body.modern .controls, body.modern .player-title, body.modern .m-controls { display: none !important; }
     .md-shell { display: none; position: absolute; inset: 0; z-index: 6; }
     body.modern .md-shell { display: block; }
@@ -429,9 +407,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .md-info h1 { font-size: 0.95rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; }
     .md-info .md-sub { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 0; opacity: 0; transition: 0.25s; }
     .md-info:hover .md-sub { max-height: 20px; opacity: 1; margin-top: 2px; }
-    /* flex-wrap + a width budget so a full row (Вместе + cast + lock + rotate +
-       settings on touch) wraps to a second line on narrow landscape phones instead of
-       overflowing off the right edge of the screen. */
+    /* flex-wrap и лимит ширины: полный ряд кнопок на узком телефоне в горизонтали
+       переносится на вторую строку, а не уезжает за правый край. */
     .md-toptools { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 42vw; }
     .md-tico { width: 44px; height: 44px; border-radius: 50%; background: rgba(10,8,16,0.55); border: 1px solid rgba(255,255,255,0.1);
       backdrop-filter: blur(16px); display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff; transition: 0.2s; }
@@ -450,9 +427,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .md-vrail:hover { width: 60px; background: rgba(10,8,16,0.68); border-color: rgba(196,165,253,0.4); }
     .md-vrail svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; opacity: 0.55; transition: 0.2s; flex-shrink: 0; }
     .md-vrail:hover svg { opacity: 1; width: 22px; height: 22px; }
-    /* Dimmed when there's no prev/next episode — kept clickable (never pointer-events:none)
-       so a click here always lands on the rail itself rather than falling through to the
-       video underneath and toggling play/pause by accident. */
+    /* Приглушено, когда нет соседней серии, но кликабельность оставляем: с
+       pointer-events:none клик проваливался бы на видео и переключал паузу. */
     .md-vrail.md-nav-off { opacity: 0.35; cursor: default; }
     .md-vrail.md-nav-off:hover { width: 28px; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.1); }
     .md-vrail.md-nav-off:hover svg { opacity: 0.55; width: 18px; height: 18px; }
@@ -505,7 +481,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
 
     body.is-desktop .md-lock, body.is-desktop .md-rotate, body.is-desktop .md-cast { display: none !important; }
 
-    /* Idle auto-hide: chrome fades, the pill collapses to a thin sliver (not gone) */
+    /* Автоскрытие в простое: обвязка гаснет, «таблетка» сжимается в полоску */
     body.modern.md-idle .md-top, body.modern.md-idle .md-vrail, body.modern.md-idle .md-satellites { opacity: 0; pointer-events: none; }
     body.modern.md-idle .md-dock { padding-bottom: 10px; }
     body.modern.md-idle .md-pill { max-width: 100%; padding: 0; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; }
@@ -514,7 +490,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     body.modern.md-idle .md-track .md-base { height: 3px; border-radius: 0; }
     body.modern.md-idle .md-track .md-thumb { display: none; }
 
-    /* Lock mode */
+    /* Режим блокировки */
     body.modern.locked .md-top, body.modern.locked .md-vrail, body.modern.locked .md-satellites,
     body.modern.locked .md-dock { opacity: 0; pointer-events: none; transition: opacity 0.3s; }
     .md-unlock { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 60px; height: 60px; border-radius: 50%;
@@ -523,13 +499,13 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .md-unlock svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.9; }
     body.modern.locked.unlock-peek .md-unlock { display: flex; }
 
-    /* Settings sheet (speed + quality), reuses the mobile sheet's list markup style */
+    /* Лист настроек, разметка списка та же, что у мобильного */
     .md-sheet { position: absolute; right: 22px; bottom: 112px; width: 220px; background: rgba(14,11,22,0.96); border: 1px solid rgba(255,255,255,0.1);
       border-radius: 18px; padding: 8px; z-index: 3; display: none; backdrop-filter: blur(16px); }
     .md-sheet.open { display: block; }
     .md-sheet h4 { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 10px 4px; }
 
-    /* Gesture indicator (brightness/volume swipe), touch-only */
+    /* Индикатор жеста яркости и громкости, только тач */
     .md-gind { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 4; display: flex; align-items: center; gap: 11px;
       padding: 11px 16px; border-radius: 12px; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); opacity: 0; pointer-events: none; transition: 0.15s; }
     .md-gind.show { opacity: 1; }
@@ -537,7 +513,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .md-gind .md-gbar { width: 100px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.25); overflow: hidden; }
     .md-gind .md-gbar > i { display: block; height: 100%; background: #fff; width: 0; }
 
-    /* Autoplay-next ring countdown lives inside the existing #autonext card */
+    /* Кольцевой отсчёт автоперехода живёт внутри карточки #autonext */
     .md-ring-wrap { display: none; }
     body.modern .md-ring-wrap { display: block; flex-shrink: 0; }
     body.modern #autonext { flex-direction: row; align-items: center; gap: 14px; }
@@ -897,23 +873,20 @@ export function buildPlayerPage(data: PlayerPageData): string {
     function authHeaders(base){base=base||{};if(CONFIG.gatewayKey)base["X-Gateway-Key"]=CONFIG.gatewayKey;return base;}
     (function () {
       const video=document.getElementById("player"),stage=document.getElementById("stage"),overlay=document.getElementById("overlay"),loader=document.getElementById("loader"),bigPlay=document.getElementById("big-play"),errorPanel=document.getElementById("error-panel"),savedBadge=document.getElementById("saved-badge"),resumeToast=document.getElementById("resume-toast"),resumeText=document.getElementById("resume-text"),resumeBtn=document.getElementById("resume-btn"),resumeSkip=document.getElementById("resume-skip"),progressWrap=document.getElementById("progress-wrap"),progressTrack=document.getElementById("progress-track"),progressPlayed=document.getElementById("progress-played"),progressBuffer=document.getElementById("progress-buffer"),progressSaved=document.getElementById("progress-saved"),progressThumb=document.getElementById("progress-thumb"),timeCur=document.getElementById("time-cur"),timeDur=document.getElementById("time-dur"),btnPlay=document.getElementById("btn-play"),iconPlay=document.getElementById("icon-play"),iconPause=document.getElementById("icon-pause"),btnBack=document.getElementById("btn-back"),btnFwd=document.getElementById("btn-fwd"),btnSkipOp=document.getElementById("btn-skip-op"),btnMute=document.getElementById("btn-mute"),iconVol=document.getElementById("icon-vol"),iconMute=document.getElementById("icon-mute"),btnFs=document.getElementById("btn-fs"),iconFsExpand=document.getElementById("icon-fs-expand"),iconFsShrink=document.getElementById("icon-fs-shrink"),volume=document.getElementById("volume"),qualityWrap=document.getElementById("quality-wrap"),qualityBtn=document.getElementById("quality-btn"),qualityLabelText=document.getElementById("quality-label-text"),qualityDropdown=document.getElementById("quality-dropdown"),qualityOptions=document.getElementById("quality-options"),qualitySectionH=document.getElementById("quality-section-h"),speedLabelText=document.getElementById("speed-label-text"),speedDropdown=document.getElementById("speed-dropdown"),btnHk=document.getElementById("btn-hk"),hkModal=document.getElementById("hk-modal"),alBtn=document.getElementById("al-btn");
-      // Mobile control refs
+      // Ссылки на элементы мобильного UI
       const mPlay=document.getElementById("m-play"),mIconPlay=document.getElementById("m-icon-play"),mIconPause=document.getElementById("m-icon-pause"),mFs=document.getElementById("m-fs"),mIconFsExpand=document.getElementById("m-icon-fs-expand"),mIconFsShrink=document.getElementById("m-icon-fs-shrink"),mProgressWrap=document.getElementById("m-progress-wrap"),mProgressTrack=document.getElementById("m-progress-track"),mProgressPlayed=document.getElementById("m-progress-played"),mProgressBuffer=document.getElementById("m-progress-buffer"),mProgressThumb=document.getElementById("m-progress-thumb"),mTimeCur=document.getElementById("m-time-cur"),mTimeDur=document.getElementById("m-time-dur"),mQualityBtn=document.getElementById("m-quality-btn"),mQualityText=document.getElementById("m-quality-text"),mQualityList=document.getElementById("m-quality-list"),mSheet=document.getElementById("m-sheet"),mSpeedBtn=document.getElementById("m-speed-btn"),mSpeedText=document.getElementById("m-speed-text");
       let hls=null,currentLabel=CONFIG.defaultLabel,currentRate=1,saveTimer=null,savedBadgeTimer=null,hideTimer=null,seeking=false,resumed=false,pendingResume=CONFIG.resumeTime||0,savedMarkerPct=0,qualityOpen=false,hkOpen=false,corsFailed=false;
-      // Which track's seek function a drag is currently bound to — all three skins'
-      // tracks exist in the DOM at all times (only CSS decides which paints), so a
-      // single shared window "mousemove" must dispatch to whichever one the drag
-      // actually started on, never to a hidden track (getBoundingClientRect() on a
-      // display:none element is a zero rect, so dividing by its width produces
-      // Infinity, which seekToRatio's clamp turns into "seek to the very end").
+      // К какой дорожке привязана текущая протяжка. Дорожки всех трёх скинов лежат
+      // в DOM одновременно, поэтому общий mousemove должен попасть именно в ту, где
+      // начали тянуть: у скрытой getBoundingClientRect() нулевой, деление на ширину
+      // даёт Infinity и перемотку в самый конец.
       let activeSeekFn=null;
       let skipIntervals=[];
       let skipApplicable=false;
       const skipFab=document.getElementById("skip-fab");
-      // Drives the floating skip button. With Aniskip data → precise label, applicable
-      // only inside an OP/ED window (recaps auto-skip). Without data → a static
-      // "+1:25" fallback that's always applicable. Visibility itself is gated on the
-      // control panel (overlay) being visible — see reflectSkip().
+      // Плавающая кнопка скипа. С данными Aniskip — точная подпись и только внутри
+      // окна OP/ED, без данных — статический «+1:25». Видимость завязана на панель
+      // управления, см. reflectSkip().
       let skipLabel="";
       function updateSkipVisibility(){
         const t=video.currentTime||0;
@@ -924,16 +897,16 @@ export function buildPlayerPage(data: PlayerPageData): string {
           if(iv){skipApplicable=true;skipLabel=iv.type==="op"?"Пропустить опенинг":"Пропустить эндинг";skipFab.textContent=skipLabel;}
           else{skipApplicable=false;}
         }else{
-          // No Aniskip timestamps — the manual jump lives on the "+85" button now.
+          // Таймкодов Aniskip нет — ручной прыжок остаётся на кнопке «+85».
           skipApplicable=false;
         }
         reflectSkip();
         mdRenderZones();
       }
-      // Show the skip button only when it's applicable AND the control panel is up.
+      // Кнопка скипа видна, только когда применима и поднята панель управления.
       function reflectSkip(){skipFab.classList.toggle("show",skipApplicable&&overlay.classList.contains("visible"));mdSkip.textContent=skipLabel;mdSkip.style.display=skipApplicable?"":"none";}
-      // Paint the OP/ED zones directly on the Modern segmented track (visual only — the
-      // legacy skins keep the floating skip button as their only Aniskip affordance).
+      // Зоны опенинга и эндинга рисуем прямо на сегментированной дорожке Modern.
+      // В остальных скинах Aniskip виден только плавающей кнопкой.
       function mdRenderZones(){
         const d=video.duration;
         if(!d||isNaN(d)||!skipIntervals.length){mdZoneOp.classList.remove("show");mdZoneEd.classList.remove("show");return;}
@@ -944,7 +917,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       const SPEEDS=[0.5,0.75,1,1.25,1.5,1.75,2];
       try{const cached=localStorage.getItem("miraihub:"+CONFIG.progressKey);if(cached){const p=JSON.parse(cached);if(typeof p.time==="number"&&p.time>pendingResume)pendingResume=p.time;if(p.duration>0&&p.time>0)savedMarkerPct=Math.min(100,(p.time/p.duration)*100);}}catch{}
 
-      // ── Persisted preferences (volume, mute, speed, quality) across episodes ──
+      // ── Настройки, переживающие смену серии: громкость, звук, скорость, качество ──
       const PREF="miraihub:prefs";
       let prefs={};try{prefs=JSON.parse(localStorage.getItem(PREF)||"{}")||{};}catch{}
       function savePrefs(){try{localStorage.setItem(PREF,JSON.stringify({volume:video.volume,muted:video.muted,rate:currentRate,quality:currentLabel}));}catch{}}
@@ -958,22 +931,16 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function sheetOpen(){return mSheet&&mSheet.classList.contains("open");}
       function showOverlay(){if(document.body.classList.contains("locked"))return;overlay.classList.add("visible");stage.classList.add("cursor-visible");reflectSkip();if(hideTimer)clearTimeout(hideTimer);if(!video.paused&&!hkOpen&&!qualityOpen&&!sheetOpen()){hideTimer=setTimeout(hideOverlay,3000);}}
       function hideOverlay(){if(seeking||hkOpen||qualityOpen||sheetOpen())return;overlay.classList.remove("visible");stage.classList.remove("cursor-visible");reflectSkip();}
-      // While locked: reveal the unlock button on tap, auto-hide after 3s.
+      // В блокировке тап показывает кнопку разблокировки, через 3с прячем.
       let unlockTimer=null;
       function peekUnlock(){document.body.classList.add("unlock-peek");if(unlockTimer)clearTimeout(unlockTimer);unlockTimer=setTimeout(function(){document.body.classList.remove("unlock-peek");},3000);}
       function setLoader(on){loader.classList.toggle("visible",on);}
       function showError(msg){errorPanel.textContent=msg;errorPanel.classList.add("visible");setLoader(false);}
       function updatePlayUi(){const playing=!video.paused&&!video.ended;bigPlay.classList.toggle("visible",!playing);iconPlay.style.display=playing?"none":"block";iconPause.style.display=playing?"block":"none";mIconPlay.style.display=playing?"none":"block";mIconPause.style.display=playing?"block":"none";document.body.classList.toggle("md-playing",playing);mdIconPlay.style.display=playing?"none":"block";mdIconPause.style.display=playing?"block":"none";mdIconPlay2.style.display=playing?"none":"block";mdIconPause2.style.display=playing?"block":"none";}
-      // Watch Together: only the host drives playback (see features/together.ts).
-      // wtRole is set by the 'role' postMessage from the React host; inRoom
-      // (declared further down, set by the 'meta' message) is reused as-is —
-      // both are only ever read once a control is actually clicked, by which
-      // point the whole script has finished its initial run, so the forward
-      // reference is safe. Gating here, inside the functions every play/
-      // pause/seek path already funnels through (buttons, keyboard shortcuts,
-      // drag-seek alike) covers all of them at once instead of disabling each
-      // control individually across the mobile/desktop/Modern markup. A guest
-      // tapping a locked control gets a toast, not silence.
+      // Watch Together: воспроизведением управляет только хост. Проверка стоит
+      // внутри функций, через которые проходят все пути — кнопки, хоткеи, протяжка, —
+      // поэтому не нужно гасить каждый контрол в трёх разметках отдельно.
+      // wtRole и inRoom читаются только по клику, к тому моменту скрипт уже отработал.
       var wtRole=null;
       function wtGuestLocked(){return wtRole==="guest"&&inRoom;}
       function wtDenyToast(){showShot("Только хост управляет воспроизведением");}
@@ -988,8 +955,8 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function findQuality(label){return CONFIG.qualities.find(q=>q.label===label)||CONFIG.qualities[0];}
       function destroyHls(){if(hls){hls.destroy();hls=null;}}
       function loadStream(label,autoplay){const item=findQuality(label);if(!item){showError("поток недоступен");return;}currentLabel=item.label;qualityLabelText.textContent=currentLabel;destroyHls();setLoader(true);errorPanel.classList.remove("visible");const url=item.url,isHlsStream=url.includes(".m3u8");const onReady=()=>{setLoader(false);updateProgress();try{video.playbackRate=currentRate;}catch{}if(autoplay)video.play().catch(()=>{});};
-        // crossOrigin lets us capture screenshots without tainting the canvas; if the
-        // CDN doesn't send CORS headers the media fails, so we retry once without it.
+        // crossOrigin нужен, чтобы canvas не «испачкался» и скриншот снялся. Если CDN
+        // не отдаёт CORS-заголовки, видео не загрузится — тогда один раз пробуем без него.
         if(corsFailed)video.removeAttribute("crossorigin");else video.crossOrigin="anonymous";
         if(!isHlsStream||video.canPlayType("application/vnd.apple.mpegurl")){
           const onErr=()=>{if(!corsFailed&&video.hasAttribute("crossorigin")){corsFailed=true;loadStream(currentLabel,true);}else showError("не удалось загрузить видео");};
@@ -1003,10 +970,9 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function toggleQuality(){qualityOpen=!qualityOpen;qualityDropdown.classList.toggle("open",qualityOpen);if(qualityOpen){if(hideTimer)clearTimeout(hideTimer);}else showOverlay();}
       function closeQuality(){qualityOpen=false;qualityDropdown.classList.remove("open");showOverlay();}
       // ── Горячая смена озвучки ──
-      // Дорожка меняется без перезагрузки плеера: сервер отдаёт готовый поток,
-      // мы подменяем CONFIG.qualities и переиспользуем loadStream — он уже умеет
-      // возвращать таймкод (тот же путь, что и у смены качества). Перезагружать
-      // страницу нельзя: родитель пересоздал бы iframe и сбросил воспроизведение.
+      // Без перезагрузки: подменяем CONFIG.qualities и переиспользуем loadStream,
+      // он уже умеет возвращать таймкод. Перезагрузка страницы недопустима —
+      // родитель пересоздаст iframe и сбросит воспроизведение.
       const mDubH=document.getElementById("m-dub-h"),mDubList=document.getElementById("m-dub-list"),
             mdDubH=document.getElementById("md-dub-h"),mdDubList=document.getElementById("md-dub-list"),
             dubWrap=document.getElementById("dub-wrap"),dubBtn=document.getElementById("dub-btn"),
@@ -1098,49 +1064,28 @@ export function buildPlayerPage(data: PlayerPageData): string {
         }catch{showShot("Ошибка сети");}
         finally{dubBusy=false;setLoader(false);mSheet.classList.remove("open");mdSheet.classList.remove("open");}
       }
-      // ── Playback speed ──
+      // ── Скорость воспроизведения ──
       function setRate(r){currentRate=r;try{video.playbackRate=r;}catch{}speedLabelText.textContent=r+"×";if(mSpeedText)mSpeedText.textContent=r+"×";document.querySelectorAll("#speed-dropdown .quality-option, #md-speed-list .quality-option").forEach(b=>b.classList.toggle("active",Number(b.dataset.rate)===r));savePrefs();}
       function buildSpeedDropdown(){speedDropdown.innerHTML="";mdSpeedList.innerHTML="";for(const r of SPEEDS){const btn=document.createElement("button");btn.className="quality-option"+(r===currentRate?" active":"");btn.textContent=r+"×";btn.dataset.rate=String(r);btn.onclick=()=>{setRate(r);closeQuality();mdSheet.classList.remove("open");};speedDropdown.appendChild(btn);const btn2=document.createElement("button");btn2.className="quality-option"+(r===currentRate?" active":"");btn2.textContent=r+"×";btn2.dataset.rate=String(r);btn2.onclick=()=>{setRate(r);mdSheet.classList.remove("open");};mdSpeedList.appendChild(btn2);}speedLabelText.textContent=currentRate+"×";if(mSpeedText)mSpeedText.textContent=currentRate+"×";}
       function toggleHk(){hkOpen=!hkOpen;hkModal.classList.toggle("open",hkOpen);if(hkOpen){if(hideTimer)clearTimeout(hideTimer);overlay.classList.add("visible");}else showOverlay();}
       const isTouch = matchMedia("(hover: none)").matches || ("ontouchstart" in window);
 
-      // ── Modern skin refs (all null-safe — this const block simply doesn't run
-      //    anything if design isn't modern; the elements still exist in the DOM
-      //    either way since only CSS decides which skin paints). ──
-      // Touch devices always get the old mobile skin (.m-controls) regardless of the
-      // Modern-скин плеера — только на десктопе. На телефоне он остаётся Legacy
-      // по решению владельца: «таблетка» и плавающий островок Modern на узком
-      // экране выглядят хуже, чем выделенный мобильный интерфейс .m-controls.
-      // Это НЕ прежний баг с двумя слоями управления — тот исправлен ниже
-      // (isMobile учитывает MODERN, и обвязки больше не навешиваются обе сразу).
-      // Остальной Modern на телефоне не затронут: речь только про плеер.
-      //
-      // Десктопная Legacy-«таблетка» (.controls/.pill-wrap) больше не выбирается
-      // никак — по решению владельца поддержка двух параллельных десктопных
-      // скинов не стоила той лишней работы, что она добавляла на каждую фичу
-      // (пример — эта же ветка: кнопку AnimeLib HD пришлось заводить дважды,
-      // ловить temporal dead zone от разного порядка объявления рефов и т.д.).
-      // CONFIG.design больше не читается для этого решения. Разметка и код
-      // Legacy-«таблетки» физически ещё в файле (не вычищены, чтобы не рисковать
-      // по живому) и снимок сохранён в legacy-backup/ на момент отключения.
+      // ── Ссылки на элементы Modern-скина ──
+      // Все null-safe: элементы есть в DOM всегда, красит только CSS.
+      // Modern-скин плеера включается лишь на десктопе — на узком экране выделенный
+      // мобильный интерфейс .m-controls удобнее. Остального Modern это не касается.
+      // Десктопная Legacy-«таблетка» больше не выбирается никак; её разметка ещё
+      // лежит в файле, снимок — в legacy-backup/.
       const MODERN = !isTouch;
       document.body.classList.toggle("modern", MODERN);
       document.body.classList.add(isTouch ? "is-touch" : "is-desktop");
       const mdTrack=document.getElementById("md-track"),mdPlayed=document.getElementById("md-played"),mdBuf=document.getElementById("md-buf"),mdThumb=document.getElementById("md-thumb"),mdMarker=document.getElementById("md-marker"),mdZoneOp=document.getElementById("md-zone-op"),mdZoneEd=document.getElementById("md-zone-ed"),mdTimeCur=document.getElementById("md-time-cur"),mdTimeDur=document.getElementById("md-time-dur"),mdIconPlay=document.getElementById("md-icon-play"),mdIconPause=document.getElementById("md-icon-pause"),mdIconPlay2=document.getElementById("md-icon-play2"),mdIconPause2=document.getElementById("md-icon-pause2"),mdCenterPlay=document.getElementById("md-center-play"),mdPlay=document.getElementById("md-play"),mdBack10=document.getElementById("md-back10"),mdFwd10=document.getElementById("md-fwd10"),mdVolBtn=document.getElementById("md-volbtn"),mdVolume=document.getElementById("md-volume"),mdVolOn=document.getElementById("md-vol-on"),mdVolOff=document.getElementById("md-vol-off"),mdFsBtn=document.getElementById("md-fs"),mdFsExp=document.getElementById("md-fs-exp"),mdFsShr=document.getElementById("md-fs-shr"),mdSkip=document.getElementById("md-skip"),mdSkip85=document.getElementById("md-skip85"),mdShell=document.getElementById("md-shell"),mdShot=document.getElementById("md-shot"),mdRateBtn=document.getElementById("md-rate"),mdSettingsBtn=document.getElementById("md-settings"),mdSheet=document.getElementById("md-sheet"),mdSpeedList=document.getElementById("md-speed-list"),mdQualityList=document.getElementById("md-quality-list"),mdWt=document.getElementById("md-wt"),mdQueue=document.getElementById("md-queue"),mdCast=document.getElementById("md-cast"),mdPrev=document.getElementById("md-prev"),mdNext=document.getElementById("md-next"),mdBackChip=document.getElementById("md-back"),mdLock=document.getElementById("md-lock"),mdUnlock=document.getElementById("md-unlock"),mdRotate=document.getElementById("md-rotate"),mdGind=document.getElementById("md-gind"),mdGiBright=document.getElementById("md-gi-bright"),mdGiVol=document.getElementById("md-gi-vol"),mdGfill=document.getElementById("md-gfill"),anRing=document.getElementById("an-ring"),anNum2=document.getElementById("an-num2"),anCancel2=document.getElementById("an-cancel2"),anNow2=document.getElementById("an-now2"),mdAlBtn=document.getElementById("md-al-btn");
-      // ── AnimeLib HD (opt-in) ──
-      // Genuinely separate from the dub-switcher above: those sourceIds all come
-      // from Anixart's own dubber list (Kodik/AniLibria). AnimeLib is a wholly
-      // unrelated catalog matched by title, and its stream needs the viewer's own
-      // AnimeLib token — so this only ever appears for someone who connected one
-      // in Settings, and only replaces CONFIG.qualities on explicit request, never
-      // automatically (the lookup can be slow/miss, and most episodes won't have it).
-      // Both skins share this one lookup — Legacy/Modern never render at the same
-      // time (body.modern hides .controls entirely), but both DOM trees always
-      // exist, so wiring both buttons costs nothing extra. Placed after the Modern
-      // refs above — mdAlBtn is a const declared there, and referencing it any
-      // earlier in this IIFE hits the temporal dead zone.
-      let alBusy=false;
-      function alUrl(path){return "/api/v1"+path+(CONFIG.token?((path.indexOf("?")<0?"?":"&")+"token="+encodeURIComponent(CONFIG.token)):"");}
+      // ── AnimeLib HD ──
+      // Не имеет отношения к переключателю озвучек выше: там sourceId из списка
+      // Anixart, здесь — отдельный каталог, сопоставленный по названию, и поток
+      // требует личный токен зрителя. Поэтому только по явному запросу и только у
+      // того, кто подключил токен в настройках. Кнопки заводятся сразу для обоих
+      // скинов: одновременно они не рисуются, но в DOM есть всегда.
       const alButtons=[alBtn,mdAlBtn].filter(Boolean);
       if(alButtons.length&&CONFIG.token){
         fetch(alUrl("/animelib/status"),{headers:authHeaders()}).then(r=>r.json()).then(j=>{if(j&&j.connected)alButtons.forEach(b=>b.style.display="");}).catch(()=>{});
@@ -1174,7 +1119,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       }
       document.addEventListener("fullscreenchange",()=>{const fs=Boolean(document.fullscreenElement);iconFsExpand.style.display=fs?"none":"block";iconFsShrink.style.display=fs?"block":"none";mIconFsExpand.style.display=fs?"none":"block";mIconFsShrink.style.display=fs?"block":"none";mdFsExp.style.display=fs?"none":"block";mdFsShr.style.display=fs?"block":"none";try{if(fs){if(screen.orientation&&screen.orientation.lock)screen.orientation.lock("landscape").catch(()=>{});}else{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock();}}catch{}});
 
-      // ── Progress scrubbing: mouse + touch ──
+      // ── Протяжка прогресса: мышь и тач ──
       const seekFromX=clientX=>{const r=progressTrack.getBoundingClientRect();seekToRatio((clientX-r.left)/r.width);};
       progressWrap.addEventListener("mousedown",e=>{seeking=true;activeSeekFn=seekFromX;seekFromX(e.clientX);saveProgress(true);});
       window.addEventListener("mousemove",e=>{if(seeking&&activeSeekFn)activeSeekFn(e.clientX);});
@@ -1188,12 +1133,12 @@ export function buildPlayerPage(data: PlayerPageData): string {
         document.addEventListener("mousedown",showOverlay);
       }
 
-      // ── Tap feedback for double-tap seek ──
+      // ── Отклик на двойной тап перемотки ──
       const tapBack=document.getElementById("tap-back"),tapFwd=document.getElementById("tap-fwd");
       function flashTap(el){el.classList.add("show");if(el._t)clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove("show"),400);}
 
-      // ── Surface tap handling ──
-      // Desktop: click toggles play. Touch: single tap toggles controls, double-tap seeks (sides) / plays (center).
+      // ── Обработка тапа по поверхности ──
+      // Десктоп: клик — пауза. Тач: одиночный тап — контролы, двойной — перемотка по краям или пауза по центру.
       let lastTapTime=0,tapTimer=null;
       let suppressTap=false; // set right after a vertical swipe gesture
       function surfaceTap(clientX){
@@ -1250,7 +1195,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       buildSpeedDropdown();
       updateSkipVisibility(); // show the +1:25 fallback immediately (covers no-malId / pre-fetch)
 
-      // ── Aniskip: real OP/ED timestamps ──
+      // ── Aniskip: настоящие таймкоды опенинга и эндинга ──
       if(CONFIG.malId){
         const ep=Number(CONFIG.episodePosition)||1;
         fetch("https://api.aniskip.com/v2/skip-times/"+CONFIG.malId+"/"+ep+"?types[]=op&types[]=ed&types[]=recap&episodeLength=0")
@@ -1264,48 +1209,42 @@ export function buildPlayerPage(data: PlayerPageData): string {
           .catch(()=>{});
       }
 
-      // ── Mobile UI wiring ──
-      // ВАЖНО: только когда Modern не активен. Раньше на тач-устройстве
-      // навешивались ОБА слоя управления сразу (body получал и "modern", и
-      // "mobile"), их обработчики касаний дрались за одни и те же жесты — из-за
-      // этого Modern и был отключён на тач целиком. Слои взаимоисключающие:
-      // у Modern есть свои play/fullscreen/замок/поворот/перемотка и свой лист
-      // настроек, дублировать их Legacy-обвязкой не нужно.
+      // ── Обвязка мобильного UI ──
+      // Только когда Modern не активен: слои взаимоисключающие, и если навесить оба,
+      // их обработчики касаний дерутся за одни и те же жесты.
       const isMobile = (isTouch || window.innerWidth <= 640) && !MODERN;
       if(isMobile){
         document.body.classList.add("mobile");
         mPlay.addEventListener("click",(e)=>{e.stopPropagation();togglePlay();});
         mFs.addEventListener("click",(e)=>{e.stopPropagation();toggleFs();});
         document.getElementById("m-skip-op").addEventListener("click",(e)=>{e.stopPropagation();seekBy(85);});
-        // Bottom-left gauge: quick-cycle playback speed (also pickable in the settings sheet)
+        // Счётчик слева внизу перебирает скорость по кругу
         mSpeedBtn.addEventListener("click",(e)=>{e.stopPropagation();const i=SPEEDS.indexOf(currentRate);setRate(SPEEDS[(i+1)%SPEEDS.length]);buildMobileSpeedList();showOverlay();});
-        // "360p" chip + gear both open the settings sheet
-        // Список озвучек тянем лениво, при первом открытии настроек: на каждой
-        // загрузке плеера это лишние запросы, а открывают лист далеко не всегда.
+        // Чип «360p» и шестерёнка открывают один и тот же лист настроек.
+        // Озвучки тянем лениво, при первом открытии — лист смотрят далеко не всегда.
         const openSheet=(e)=>{e.stopPropagation();mSheet.classList.toggle("open");if(mSheet.classList.contains("open")){loadDubs();if(hideTimer)clearTimeout(hideTimer);}};
         mQualityBtn.addEventListener("click",openSheet);
         document.getElementById("m-settings").addEventListener("click",openSheet);
         mSheet.addEventListener("click",(e)=>e.stopPropagation());
-        // Lock / unlock controls
+        // Блокировка и разблокировка контролов
         document.getElementById("m-lock").addEventListener("click",(e)=>{e.stopPropagation();mSheet.classList.remove("open");document.body.classList.add("locked");overlay.classList.remove("visible");peekUnlock();});
         document.getElementById("m-unlock").addEventListener("click",(e)=>{e.stopPropagation();document.body.classList.remove("locked");document.body.classList.remove("unlock-peek");if(unlockTimer)clearTimeout(unlockTimer);showOverlay();});
-        // Rotate: ask the host (native locks orientation reliably), with an in-page fallback
+        // Поворот просим у хоста — нативно он надёжнее, — с запасным вариантом на странице
         document.getElementById("m-rotate").addEventListener("click",(e)=>{e.stopPropagation();playerMsg("rotate");try{if(screen.orientation&&screen.orientation.lock){const t=(screen.orientation.type||"").indexOf("landscape")===0?"portrait-primary":"landscape-primary";screen.orientation.lock(t).catch(()=>{});}}catch{}showOverlay();});
-        // Mobile progress scrubbing (mouse + touch)
+        // Протяжка прогресса в мобильном UI
         const mSeekX=clientX=>{const r=mProgressTrack.getBoundingClientRect();seekToRatio((clientX-r.left)/r.width);};
         mProgressWrap.addEventListener("mousedown",e=>{e.stopPropagation();seeking=true;activeSeekFn=mSeekX;mSeekX(e.clientX);saveProgress(true);});
         mProgressWrap.addEventListener("touchstart",e=>{seeking=true;mSeekX(e.touches[0].clientX);e.preventDefault();},{passive:false});
         mProgressWrap.addEventListener("touchmove",e=>{if(seeking){mSeekX(e.touches[0].clientX);e.preventDefault();}},{passive:false});
         mProgressWrap.addEventListener("touchend",()=>{if(seeking){saveProgress(true);seeking=false;}});
-        // Close quality sheet when controls hide
+        // Прячем лист качества вместе с контролами
         overlay.addEventListener("transitionend",()=>{if(!overlay.classList.contains("visible"))mSheet.classList.remove("open");});
         showOverlay();
       }
 
-      // ── Immersive navigation bridge (Back / Prev / Next / Together / Queue) ──
-      // The React host owns routing, episode loading and Watch-Together, so the
-      // in-player buttons post intents and the host performs them. The host also
-      // pushes {__wt:"meta"} so we can enable prev/next and reflect room state.
+      // ── Мост навигации (назад / серии / Вместе / очередь) ──
+      // Роутинг и загрузка серий на стороне React-хоста, поэтому кнопки плеера шлют
+      // намерение, а выполняет его хост. Обратно приходит {__wt:"meta"} с состоянием.
       function playerMsg(action,extra){try{parent.postMessage(Object.assign({__player:action},extra||{}),"*");}catch(e){}}
       function buildMobileSpeedList(){const list=document.getElementById("m-speed-list");if(!list)return;list.innerHTML="";for(const r of SPEEDS){const b=document.createElement("button");b.className="quality-option"+(r===currentRate?" active":"");b.textContent=r+"×";b.onclick=()=>{setRate(r);buildMobileSpeedList();mSheet.classList.remove("open");showOverlay();};list.appendChild(b);}}
       buildMobileSpeedList();
@@ -1321,7 +1260,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       bindNav("d-queue","queue");bindNav("m-queue","queue");
       bindNav("m-episodes","episodes");
 
-      // ── Autoplay next episode with a countdown (skipped in a room / on finale) ──
+      // ── Автопереход к следующей серии с отсчётом; не работает в комнате и на финале ──
       (function(){
         const box=document.getElementById("autonext"),anNum=document.getElementById("an-num");
         const RING_CIRC=119.4;
@@ -1341,7 +1280,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         video.addEventListener("play",anStop); // replay / seek-back cancels the countdown
       })();
 
-      // ── Vertical swipe gestures: left half = brightness (dimmer), right half = volume ──
+      // ── Вертикальные свайпы: слева яркость, справа громкость ──
       if(isMobile){
         const dimmer=document.getElementById("dimmer"),gInd=document.getElementById("g-ind"),
           gFill=document.getElementById("g-fill"),gIB=document.getElementById("g-icon-bright"),gIV=document.getElementById("g-icon-vol");
@@ -1369,12 +1308,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
         });
       }
 
-      // ── Cast to TV (Remote Playback API + AirPlay) ──
+      // ── Трансляция на ТВ: Remote Playback API и AirPlay ──
       const btnCast=document.getElementById("btn-cast"),mCast=document.getElementById("m-cast");
-      // The desktop cast button appears only when a target is available; the
-      // mobile one stays in the ⚙ sheet at all times (it's a discoverable option).
-      // Modern only surfaces cast on touch devices (casting is realistically phone-first) —
-      // body.is-desktop hides #md-cast outright via CSS regardless of this availability flag.
+      // Десктопная кнопка каста появляется только при найденном устройстве, мобильная
+      // всегда висит в листе настроек. В Modern каст показывается лишь на тач —
+      // #md-cast на десктопе скрыт через CSS независимо от этого флага.
       function showCast(on){btnCast.style.display=on?"":"none";mdCast.style.display=on?"flex":"none";}
       if(mCast)mCast.style.display="";
       function castPrompt(){try{if(video.webkitShowPlaybackTargetPicker){video.webkitShowPlaybackTargetPicker();return;}if(video.remote&&video.remote.prompt)video.remote.prompt().catch(()=>{});}catch{}}
@@ -1384,7 +1322,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       try{if(video.remote&&video.remote.watchAvailability)video.remote.watchAvailability(a=>showCast(a)).catch(()=>{});}catch{}
       video.addEventListener("webkitplaybacktargetavailabilitychanged",e=>{showCast(e.availability==="available");});
 
-      // ── Screenshot → personal gallery ──
+      // ── Скриншот в личную галерею ──
       const btnShot=document.getElementById("btn-shot"),mShot=document.getElementById("m-shot"),shotFab=document.getElementById("shot-fab"),shotToast=document.getElementById("shot-toast"),shotToastText=document.getElementById("shot-toast-text");
       let shotToastTimer=null,shotBusy=false;
       function showShot(msg){shotToastText.textContent=msg;shotToast.classList.add("visible");if(shotToastTimer)clearTimeout(shotToastTimer);shotToastTimer=setTimeout(()=>shotToast.classList.remove("visible"),2600);}
@@ -1415,7 +1353,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA"].includes(e.target?.tagName))return;if(e.key.toLowerCase()==="s"&&!e.ctrlKey&&!e.metaKey){e.preventDefault();captureScreenshot();}});
       }
 
-      // ── Episode rating (IMDB-style 1–10) ──
+      // ── Оценка серии по десятибалльной шкале ──
       if(CONFIG.token){
         const rateModal=document.getElementById("rate-modal"),rateStarsEl=document.getElementById("rate-stars"),rateVal=document.getElementById("rate-val"),rateSave=document.getElementById("rate-save"),rateClose=document.getElementById("rate-close"),rateDel=document.getElementById("rate-del"),btnRate=document.getElementById("btn-rate"),mRate=document.getElementById("m-rate"),rateEp=document.getElementById("rate-ep");
         const rateStars=[...rateStarsEl.querySelectorAll(".rate-star")];
@@ -1443,24 +1381,18 @@ export function buildPlayerPage(data: PlayerPageData): string {
           fetch("/api/v1/player/rating?releaseId="+CONFIG.releaseId+"&sourceId="+CONFIG.sourceId+"&episode="+CONFIG.episodePosition+"&token="+encodeURIComponent(CONFIG.token),{method:"DELETE",headers:authHeaders()})
             .then(()=>{applyRating(0);closeRate();}).catch(()=>{});
         });
-        // Load existing rating
+        // Подтягиваем уже поставленную оценку
         fetch("/api/v1/player/rating?releaseId="+CONFIG.releaseId+"&sourceId="+CONFIG.sourceId+"&episode="+CONFIG.episodePosition+"&token="+encodeURIComponent(CONFIG.token),{headers:authHeaders()})
           .then(r=>r.ok?r.json():null).then(d=>{if(d&&d.rating)applyRating(d.rating);}).catch(()=>{});
-        // Auto-prompt once when the episode finishes
+        // Один раз предлагаем оценить в конце серии
         video.addEventListener("ended",()=>{if(!rateAutoShown&&!hasNext){rateAutoShown=true;setTimeout(openRate,800);}});
       }
 
-      // ── Watch Together bridge (sync via postMessage) ──
-      // Host alone is the time authority — plays/pauses/seeks and periodic
-      // heartbeats. Guests only ever apply incoming state; togglePlay/seekBy/
-      // seekToRatio already refuse to run for a locked guest (see wtGuestLocked
-      // above), so nothing here needs to re-check that. wtRole itself is the
-      // shared var declared up near togglePlay — assigning it here (no var
-      // keyword) is what makes wtGuestLocked() see role changes; redeclaring
-      // it in this scope would shadow it instead and silently break the lock.
-      // React already compensates the incoming time value for however long the
-      // message spent in flight (see PlayerPage's onPlayback) — this side just
-      // applies whatever it's given.
+      // ── Мост Watch Together (синк через postMessage) ──
+      // Авторитет по времени — только хост, гости применяют присланное состояние.
+      // wtRole здесь именно присваивается, без var: объявление в этой области
+      // затенило бы общую переменную, и блокировка гостя тихо перестала бы работать.
+      // Задержку доставки компенсирует React-сторона, здесь время берём как есть.
       (function(){
         var wtLastEmit=0;
         function emitState(force){ // host only: time + paused
@@ -1490,11 +1422,10 @@ export function buildPlayerPage(data: PlayerPageData): string {
         try{parent.postMessage({__wt:"ready"},"*");}catch(e){}
       })();
 
-      // ── Modern skin wiring: transport, track, volume, settings, nav, lock/rotate, idle-hide, gestures ──
+      // ── Обвязка Modern: транспорт, дорожка, громкость, настройки, навигация, блокировка, жесты ──
       bindNav("md-back","back");bindNav("md-wt","together");bindNav("md-queue","queue");bindNav("md-episodes","episodes");
-      // Dedicated handlers (not the generic bindNav) — the rail must ALWAYS swallow its
-      // own click, even when there's no prev/next episode, so an accidental tap never
-      // falls through to the video underneath and toggles play/pause instead.
+      // Свои обработчики вместо общего bindNav: рельс обязан гасить клик всегда,
+      // даже когда соседней серии нет, иначе тап проваливается на видео.
       mdPrev.addEventListener("click",e=>{e.stopPropagation();if(hasPrev)playerMsg("prev");});
       mdNext.addEventListener("click",e=>{e.stopPropagation();if(hasNext)playerMsg("next");});
       mdCenterPlay.addEventListener("click",e=>{e.stopPropagation();togglePlay();mdResetIdle();});
@@ -1504,10 +1435,9 @@ export function buildPlayerPage(data: PlayerPageData): string {
       mdFsBtn.addEventListener("click",e=>{e.stopPropagation();toggleFs();});
       mdSkip.addEventListener("click",e=>{e.stopPropagation();const t=video.currentTime||0;const iv=skipIntervals.find(i=>t>=i.start-1&&t<i.end);if(iv){video.currentTime=iv.end;updateProgress();}else seekBy(85);});
       mdSkip85.addEventListener("click",e=>{e.stopPropagation();seekBy(85);});
-      // Background tap/click (anywhere on the shell not covered by a real control) — reuses the
-      // same surfaceTap used by the legacy skin: desktop click toggles play immediately, touch
-      // does single-tap-to-toggle-idle / double-tap-to-seek. .md-shell sits above #stage in the
-      // stacking order, so #stage's own tap handling never fires in Modern; this restores it.
+      // Тап по фону: переиспользуем surfaceTap от legacy-скина. .md-shell лежит выше
+      // #stage, поэтому собственная обработка #stage в Modern не срабатывает —
+      // возвращаем её здесь.
       mdShell.addEventListener("click",e=>{if(e.target===mdShell)surfaceTap(e.clientX);});
       const mdSeekX=clientX=>{const r=mdTrack.getBoundingClientRect();seekToRatio((clientX-r.left)/r.width);};
       mdTrack.addEventListener("mousedown",e=>{e.stopPropagation();seeking=true;activeSeekFn=mdSeekX;mdSeekX(e.clientX);saveProgress(true);});
@@ -1517,20 +1447,20 @@ export function buildPlayerPage(data: PlayerPageData): string {
       mdVolBtn.addEventListener("click",e=>{if(e.target===mdVolume)return;e.stopPropagation();video.muted=!video.muted;});
       mdVolume.addEventListener("input",()=>{video.volume=Number(mdVolume.value);video.muted=video.volume===0;savePrefs();});
 
-      // Settings sheet — same speed+quality lists already built for desktop/mobile, just re-hosted here.
+      // Лист настроек переиспользует уже собранные списки скорости и качества.
       mdSettingsBtn.addEventListener("click",e=>{e.stopPropagation();mdSheet.classList.toggle("open");if(mdSheet.classList.contains("open")){loadDubs();if(hideTimer)clearTimeout(hideTimer);}});
       mdSheet.addEventListener("click",e=>e.stopPropagation());
       document.addEventListener("click",()=>{if(mdSheet.classList.contains("open"))mdSheet.classList.remove("open");});
 
-      // Lock / rotate — same behavior as the mobile controls, fresh bindings for the Modern cluster.
+      // Блокировка и поворот ведут себя как в мобильном UI, привязки свои.
       function mdDoLock(){mdSheet.classList.remove("open");document.body.classList.add("locked");peekUnlock();}
       function mdDoUnlock(){document.body.classList.remove("locked");document.body.classList.remove("unlock-peek");if(unlockTimer)clearTimeout(unlockTimer);mdResetIdle();}
       mdLock.addEventListener("click",e=>{e.stopPropagation();mdDoLock();});
       mdUnlock.addEventListener("click",e=>{e.stopPropagation();mdDoUnlock();});
       mdRotate.addEventListener("click",e=>{e.stopPropagation();playerMsg("rotate");try{if(screen.orientation&&screen.orientation.lock){const t=(screen.orientation.type||"").indexOf("landscape")===0?"portrait-primary":"landscape-primary";screen.orientation.lock(t).catch(()=>{});}}catch{}});
 
-      // Idle auto-hide: chrome fades after a few seconds of inactivity while playing;
-      // any interaction (or tapping the locked stage) restores it immediately.
+      // Автоскрытие в простое: обвязка гаснет через несколько секунд без действий,
+      // любое касание возвращает её сразу.
       let mdIdleT=null;
       function mdResetIdle(){
         if(document.body.classList.contains("locked"))return;
@@ -1544,15 +1474,14 @@ export function buildPlayerPage(data: PlayerPageData): string {
         video.addEventListener("pause",()=>{document.body.classList.remove("md-idle");if(mdIdleT)clearTimeout(mdIdleT);});
         mdResetIdle();
 
-        // Vertical swipe gesture (touch-only): left half = brightness, right half = volume.
+        // Вертикальный свайп, только тач: слева яркость, справа громкость.
         if(isTouch){
           const dimmer=document.getElementById("dimmer");
           let gSide=null,gStartY=0,gStartVal=0,gActive=false,gDim=0,gTimer=null;
           const gClamp=v=>Math.min(1,Math.max(0,v));
           function gShow(side,frac){mdGiBright.style.display=side==="bright"?"block":"none";mdGiVol.style.display=side==="vol"?"block":"none";mdGfill.style.width=Math.round(frac*100)+"%";mdGind.classList.add("show");if(gTimer)clearTimeout(gTimer);gTimer=setTimeout(()=>mdGind.classList.remove("show"),650);}
-          // Bound to mdShell (not #stage): .md-shell sits above #stage in the stacking order and
-          // covers the full viewport, so #stage never receives touches while Modern is active.
-          // The e.target check keeps this scoped to bare background touches, not real controls.
+          // Вешаем на mdShell, а не на #stage: в Modern он перекрыт целиком.
+          // Проверка e.target отсекает касания по настоящим контролам.
           mdShell.addEventListener("touchstart",e=>{
             if(e.target!==mdShell||document.body.classList.contains("locked")||e.touches.length!==1)return;
             const t=e.touches[0];gSide=t.clientX<window.innerWidth/2?"bright":"vol";gStartY=t.clientY;gActive=false;

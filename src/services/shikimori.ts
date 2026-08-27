@@ -3,12 +3,12 @@ import { settings } from '../config/settings.js';
 import { TtlCache } from './cache.js';
 
 /**
- * Shikimori lookups used to enrich a release card: a GraphQL title search
- * (score + main characters) and the REST "related" list. Best-effort — every
- * call degrades to null/[] on failure so enrichment never breaks the response.
+ * Запросы к Shikimori для обогащения карточки релиза: поиск тайтла через GraphQL
+ * и список связанных через REST. Всё необязательное — при сбое возвращаем пусто,
+ * карточка от этого не ломается.
  *
- * Results are cached (memory + disk) since they change slowly: a positive hit
- * lives for 12h, an empty/failed one for 1h so it gets retried sooner.
+ * Результаты кэшируем в памяти и на диске: удачный на 12 часов, пустой на час,
+ * чтобы перепросить раньше.
  */
 
 const GRAPHQL_ENDPOINT = 'https://shikimori.io/api/graphql';
@@ -87,7 +87,7 @@ export interface ShikiRelated {
   relation: string | null;
 }
 
-/** Absolute Shikimori URL from a possibly-relative `url` field. */
+/** Абсолютный адрес Shikimori из поля `url`, которое бывает относительным. */
 export function absoluteShikiUrl(url: string): string {
   if (url.startsWith('http')) return url;
   return `${REST_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
@@ -150,7 +150,7 @@ async function searchOne(term: string): Promise<ShikiAnime | null> {
   );
 }
 
-/** Try Russian, then original, then alternative title — first hit wins. */
+/** Пробуем русское название, потом оригинальное, потом альтернативное. */
 export async function findAnime(titles: {
   ru?: string | null;
   orig?: string | null;
@@ -205,9 +205,9 @@ export async function relatedAnime(animeId: string): Promise<ShikiRelated[]> {
 }
 
 /**
- * Chronological franchise chain (watch order) from Shikimori's franchise graph.
- * Nodes carry a `weight` that encodes the in-universe sequence; we sort by it
- * (then year) and drop music videos. `current` marks the requested title.
+ * Порядок просмотра франшизы из графа Shikimori. У узлов есть `weight` с
+ * внутренней последовательностью; сортируем по нему и году, клипы выкидываем.
+ * `current` помечает запрошенный тайтл.
  */
 export async function franchiseChain(animeId: string): Promise<ShikiFranchiseNode[]> {
   return franchiseCache.wrap(
@@ -226,7 +226,7 @@ export async function franchiseChain(animeId: string): Promise<ShikiFranchiseNod
         const currentId = String(data?.current ?? animeId);
         return nodes
           .filter((n) => n?.id && !/music|clip|^cm$|promo/i.test(String(n.kind || '')))
-          // Release order (year) is the reliable watch-order baseline; weight breaks ties.
+          // Год выхода — надёжная основа порядка, weight разруливает совпадения.
           .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || (a.weight ?? 0) - (b.weight ?? 0))
           .map((n) => ({
             id: String(n.id),

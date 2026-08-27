@@ -52,7 +52,7 @@ export function deleteRating(bucket: string, releaseId: string, sourceId: string
   persist(bucket, data);
 }
 
-/** All ratings for a release+source, keyed by episode position string. */
+/** Все оценки релиза по источнику, ключ — позиция серии строкой. */
 export function getRatings(bucket: string, releaseId: string, sourceId: string): Record<string, number> {
   const data = load(bucket);
   const prefix = `${releaseId}:${sourceId}:`;
@@ -73,9 +73,9 @@ export function getRating(
   return data[key(releaseId, sourceId, episode)]?.rating ?? null;
 }
 
-// ── Release-level rating (personal, 1–10, independent of any source/episode) ──
-// Stored under a sentinel source/episode so it never collides with per-episode
-// ratings (which always use a real numeric source + episode position).
+// ── Личная оценка релиза целиком, 1–10 ──
+// Лежит под служебными source и episode, чтобы не столкнуться с оценками серий:
+// у тех всегда настоящий номер источника и позиция.
 const REL = '_';
 
 export function setReleaseRating(bucket: string, releaseId: string, rating: number): void {
