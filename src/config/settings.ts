@@ -95,4 +95,8 @@ export const allowedOrigins = new Set<string>([
   'capacitor://localhost',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  // Упакованное Tizen-приложение (телевизоры Samsung) открывается с file://,
+  // и Chromium шлёт такой origin как «file://» или «null».
+  'file://',
+  'null',
 ]);

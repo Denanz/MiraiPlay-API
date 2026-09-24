@@ -45,6 +45,8 @@ async function resolveMalId(titles: { ru?: string; orig?: string }): Promise<num
 const frameAncestors = [
   "'self'",
   ...[...allowedOrigins].filter((o) => o.startsWith('http')),
+  // Tizen-приложение встраивает плеер со страницы file://
+  'file:',
 ].join(' ');
 
 /** Тот же плеер обслуживает несколько бэкендов озвучки; какой резолвер звать —

@@ -1,3 +1,4 @@
+import { randomBytes, randomInt } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { upstreamJson } from '../upstream/client.js';
 import { denylist, isLocalIp, trimIp } from '../services/blocklist.js';
@@ -154,8 +155,87 @@ function registerMiraiLink(scope: FastifyInstance): void {
   });
 }
 
+/**
+ * Вход на телевизоре по коду (как у YouTube на ТВ): вводить логин и пароль
+ * пультом мучительно. ТВ заводит заявку и показывает короткий код, телефон,
+ * где пользователь уже вошёл, подтверждает его своим токеном, ТВ забирает
+ * сессию опросом по секрету, который знает только он.
+ *
+ * Подобрать чужой код бессмысленно: подтверждение отдаёт на ТВ сессию того,
+ * кто подтверждает, а не наоборот. Заявки живут в памяти 10 минут.
+ */
+const TV_PAIR_TTL_MS = 10 * 60_000;
+const TV_PAIR_MAX = 2000;
+
+interface TvPairing {
+  code: string;
+  expiresAt: number;
+  session: { token: string; userId: number; login: string } | null;
+}
+
+const tvPairings = new Map<string, TvPairing>(); // secret → заявка
+
+function sweepTvPairings(): void {
+  const now = Date.now();
+  for (const [secret, p] of tvPairings) if (p.expiresAt <= now) tvPairings.delete(secret);
+}
+
+function findTvPairingByCode(code: string): TvPairing | undefined {
+  const now = Date.now();
+  for (const p of tvPairings.values()) if (p.code === code && p.expiresAt > now) return p;
+  return undefined;
+}
+
+function registerTvPairing(scope: FastifyInstance): void {
+  scope.post('/auth/tv/start', async (_req: FastifyRequest, reply: FastifyReply) => {
+    sweepTvPairings();
+    if (tvPairings.size >= TV_PAIR_MAX) return reply.code(503).send({ error: 'busy' });
+
+    let code = '';
+    do code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    while (findTvPairingByCode(code));
+    const secret = randomBytes(24).toString('hex');
+    tvPairings.set(secret, { code, expiresAt: Date.now() + TV_PAIR_TTL_MS, session: null });
+    return reply.send({ code, secret, expiresIn: TV_PAIR_TTL_MS / 1000 });
+  });
+
+  scope.get('/auth/tv/poll', async (req: FastifyRequest, reply: FastifyReply) => {
+    const secret = String((req.query as Record<string, unknown>).secret ?? '');
+    const p = tvPairings.get(secret);
+    if (!p || p.expiresAt <= Date.now()) {
+      tvPairings.delete(secret);
+      return reply.send({ status: 'expired' });
+    }
+    if (!p.session) return reply.send({ status: 'pending' });
+    tvPairings.delete(secret); // сессия выдаётся один раз
+    return reply.send({ status: 'ok', ...p.session });
+  });
+
+  scope.post('/auth/tv/approve', async (req: FastifyRequest, reply: FastifyReply) => {
+    const q = req.query as Record<string, unknown>;
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const token = typeof q.token === 'string' ? q.token : typeof b.token === 'string' ? b.token : '';
+    const code = String(b.code ?? '').replace(/\D/g, '');
+    if (!token) return reply.code(401).send({ error: 'missing_token' });
+    if (code.length !== 6) return reply.code(400).send({ error: 'bad_code' });
+
+    const p = findTvPairingByCode(code);
+    if (!p || p.session) return reply.code(404).send({ error: 'no_such_code' });
+
+    // Как и при привязке Mirai: личность — по самому токену у upstream.
+    const userId = await resolveUserId(token);
+    if (!userId) return reply.code(401).send({ error: 'invalid_token' });
+    const login = denylist.getOwner(token)?.login ?? String(userId);
+    if (denylist.accountBlocked(userId, login)) return reply.code(403).send({ error: 'forbidden' });
+
+    p.session = { token, userId, login };
+    return reply.send({ ok: true });
+  });
+}
+
 export function registerAuth(scope: FastifyInstance): void {
   registerMiraiLink(scope);
+  registerTvPairing(scope);
 
   scope.post('/auth/signIn', async (req: FastifyRequest, reply: FastifyReply) => {
     const { login, password } = (req.body ?? {}) as { login?: unknown; password?: unknown };

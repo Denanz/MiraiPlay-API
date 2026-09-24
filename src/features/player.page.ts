@@ -72,13 +72,13 @@ export function buildPlayerPage(data: PlayerPageData): string {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: var(--bg); overflow: hidden; }
     body { font-family: "Inter", "Segoe UI", system-ui, sans-serif; color: var(--text); }
-    .stage { position: fixed; inset: 0; background: #000; cursor: none; }
+    .stage { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: #000; cursor: none; }
     .stage.cursor-visible { cursor: default; }
     /* Прячем до первого декодированного кадра: иначе Android WebView рисует
        серую заглушку с play-кнопкой. */
     video { width: 100%; height: 100%; display: block; object-fit: contain; opacity: 0; transition: opacity 0.2s ease; }
     video.ready { opacity: 1; }
-    .overlay { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s ease; z-index: 10; }
+    .overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s ease; z-index: 10; }
     .overlay.visible { opacity: 1; pointer-events: auto; }
     /* Modern не использует legacy-оверлей, но общий код всё равно вешает на него
        .visible. z-index 10 против 6 у .md-shell — иначе он съедал бы все клики. */
@@ -125,7 +125,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .quality-option { padding: 7px 12px; border-radius: 9px; font-size: 0.78rem; cursor: pointer; color: var(--muted); transition: background 0.12s, color 0.12s; border: 0; background: transparent; text-align: left; width: 100%; }
     .quality-option:hover { background: rgba(196,165,253,0.1); color: var(--text); }
     .quality-option.active { color: var(--accent); font-weight: 600; }
-    .hk-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 50; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+    .hk-modal { position: fixed; top: 0; right: 0; bottom: 0; left: 0; display: none; align-items: center; justify-content: center; z-index: 50; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
     .hk-modal.open { display: flex; }
     .hk-box { background: rgba(14,11,22,0.98); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 28px; min-width: 280px; }
     .hk-box h2 { font-size: 0.88rem; font-weight: 600; color: var(--accent); margin-bottom: 16px; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -134,11 +134,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .hk-row .label { color: var(--muted); }
     .hk-keys { display: flex; gap: 4px; }
     kbd { display: inline-block; padding: 2px 7px; border-radius: 5px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: var(--text); font-family: inherit; font-size: 0.75rem; }
-    .loader { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 5; pointer-events: none; }
+    .loader { position: fixed; top: 0; right: 0; bottom: 0; left: 0; display: none; align-items: center; justify-content: center; z-index: 5; pointer-events: none; }
     .loader.visible { display: flex; }
     .spinner { width: 40px; height: 40px; border: 2px solid rgba(255,255,255,0.08); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .big-play { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 6; cursor: pointer; border: 0; background: transparent; }
+    .big-play { position: fixed; top: 0; right: 0; bottom: 0; left: 0; display: none; align-items: center; justify-content: center; z-index: 6; cursor: pointer; border: 0; background: transparent; }
     .big-play.visible { display: flex; }
     .big-play svg { width: 64px; height: 64px; fill: rgba(255,255,255,0.9); filter: drop-shadow(0 4px 20px rgba(0,0,0,0.6)); transition: transform 0.15s; }
     .big-play:hover svg { transform: scale(1.06); }
@@ -149,7 +149,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .toast .t-skip { background: transparent; color: var(--muted); font-weight: 500; border: 0; cursor: pointer; font-size: 0.78rem; }
     .saved-badge { position: fixed; right: 20px; bottom: 90px; font-size: 0.72rem; color: var(--accent); opacity: 0; transition: opacity 0.3s; z-index: 15; pointer-events: none; }
     .saved-badge.visible { opacity: 1; }
-    .error-panel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #f5b0b0; background: rgba(0,0,0,0.6); z-index: 8; font-size: 0.9rem; }
+    .error-panel { position: fixed; top: 0; right: 0; bottom: 0; left: 0; display: none; align-items: center; justify-content: center; color: #f5b0b0; background: rgba(0,0,0,0.6); z-index: 8; font-size: 0.9rem; }
     .error-panel.visible { display: flex; }
 
     /* ── Плавающая кнопка скипа, правый нижний угол. Видимость — reflectSkip() ── */
@@ -205,7 +205,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     #an-cancel { background: rgba(255,255,255,0.1); color: #fff; }
 
     /* ── Затемнение и индикатор жеста (свайп на мобильном) ── */
-    #dimmer { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 4; }
+    #dimmer { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: #000; opacity: 0; pointer-events: none; z-index: 4; }
     #g-ind { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 23; display: none;
       align-items: center; gap: 11px; padding: 11px 16px; border-radius: 12px; background: rgba(0,0,0,0.62);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; }
@@ -273,7 +273,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .tap-fx svg { width: 30px; height: 30px; fill: #fff; }
 
     /* ── Выделенный мобильный интерфейс плеера ── */
-    .m-controls { display: none; position: absolute; inset: 0; flex-direction: column; justify-content: space-between; pointer-events: none; }
+    .m-controls { display: none; position: absolute; top: 0; right: 0; bottom: 0; left: 0; flex-direction: column; justify-content: space-between; pointer-events: none; }
     body.mobile .controls { display: none; }
     body.mobile .player-title { display: none; }
     body.mobile #big-play { display: none; }
@@ -301,7 +301,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     /* центр: предыдущая · play · следующая */
     /* Абсолютное центрирование, чтобы play/pause попадал в геометрический центр
        кадра — там же, где спиннер. В потоке flex его тянет вверх. */
-    .m-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 52px; pointer-events: none; }
+    .m-center { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; gap: 52px; pointer-events: none; }
     .m-center > * { pointer-events: auto; }
     /* Бар и скраббер в одной колонке у нижнего края, .m-center висит отдельно. */
     /* column-reverse держит скраббер НАД иконками. Внизу ему нельзя: 30px зоны
@@ -364,7 +364,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .m-sheet-actions button:active { background: rgba(255,255,255,0.12); }
 
     /* ── Оценка серии ── */
-    .rate-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 55; background: rgba(0,0,0,0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    .rate-modal { position: fixed; top: 0; right: 0; bottom: 0; left: 0; display: none; align-items: center; justify-content: center; z-index: 55; background: rgba(0,0,0,0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
     .rate-modal.open { display: flex; }
     .rate-box { background: rgba(14,11,22,0.98); border: 1px solid var(--border); border-radius: 18px; padding: 26px 30px; display: flex; flex-direction: column; align-items: center; gap: 16px; min-width: 300px; max-width: calc(100% - 40px); box-shadow: 0 24px 60px rgba(0,0,0,0.6); }
     .rate-box h2 { font-size: 0.95rem; font-weight: 600; text-align: center; color: var(--text); }
@@ -387,7 +387,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
        Третий скин рядом с «таблеткой» и .m-controls, включается CONFIG.design==='modern'.
        Вся логика общая, новая только обвязка. Тач-элементы дополнительно за body.is-touch. */
     body.modern .controls, body.modern .player-title, body.modern .m-controls { display: none !important; }
-    .md-shell { display: none; position: absolute; inset: 0; z-index: 6; }
+    .md-shell { display: none; position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 6; }
     body.modern .md-shell { display: block; }
     .md-shell > * { pointer-events: none; }
     .md-shell button, .md-shell input, .md-shell .md-pill, .md-shell .md-sat, .md-shell .md-vrail,
@@ -433,11 +433,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .md-vrail.md-nav-off:hover { width: 28px; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.1); }
     .md-vrail.md-nav-off:hover svg { opacity: 0.55; width: 18px; height: 18px; }
 
-    .md-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .md-center { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; }
     .md-cplay { width: 88px; height: 88px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18);
       backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; opacity: 0; transition: opacity 0.3s; }
     body.modern:not(.md-playing) .md-cplay, body.modern.md-visible .md-cplay { opacity: 1; }
-    .md-cplay::before { content: ""; position: absolute; inset: -14px; border-radius: 50%; border: 1.5px solid rgba(196,165,253,0.4); animation: md-breathe 2.6s ease-in-out infinite; }
+    .md-cplay::before { content: ""; position: absolute; top: -14px; right: -14px; bottom: -14px; left: -14px; border-radius: 50%; border: 1.5px solid rgba(196,165,253,0.4); animation: md-breathe 2.6s ease-in-out infinite; }
     body.modern.md-playing .md-cplay::before { display: none; }
     @keyframes md-breathe { 0%, 100% { transform: scale(0.94); opacity: 0.5; } 50% { transform: scale(1.08); opacity: 0.95; } }
     .md-cplay svg { width: 34px; height: 34px; fill: #fff; }
@@ -915,12 +915,12 @@ export function buildPlayerPage(data: PlayerPageData): string {
         if(ed){mdZoneEd.style.left=(ed.start/d*100)+"%";mdZoneEd.style.width=((ed.end-ed.start)/d*100)+"%";mdZoneEd.classList.add("show");}else mdZoneEd.classList.remove("show");
       }
       const SPEEDS=[0.5,0.75,1,1.25,1.5,1.75,2];
-      try{const cached=localStorage.getItem("miraihub:"+CONFIG.progressKey);if(cached){const p=JSON.parse(cached);if(typeof p.time==="number"&&p.time>pendingResume)pendingResume=p.time;if(p.duration>0&&p.time>0)savedMarkerPct=Math.min(100,(p.time/p.duration)*100);}}catch{}
+      try{const cached=localStorage.getItem("miraihub:"+CONFIG.progressKey);if(cached){const p=JSON.parse(cached);if(typeof p.time==="number"&&p.time>pendingResume)pendingResume=p.time;if(p.duration>0&&p.time>0)savedMarkerPct=Math.min(100,(p.time/p.duration)*100);}}catch(_e){}
 
       // ── Настройки, переживающие смену серии: громкость, звук, скорость, качество ──
       const PREF="miraihub:prefs";
-      let prefs={};try{prefs=JSON.parse(localStorage.getItem(PREF)||"{}")||{};}catch{}
-      function savePrefs(){try{localStorage.setItem(PREF,JSON.stringify({volume:video.volume,muted:video.muted,rate:currentRate,quality:currentLabel}));}catch{}}
+      let prefs={};try{prefs=JSON.parse(localStorage.getItem(PREF)||"{}")||{};}catch(_e){}
+      function savePrefs(){try{localStorage.setItem(PREF,JSON.stringify({volume:video.volume,muted:video.muted,rate:currentRate,quality:currentLabel}));}catch(_e){}}
       if(typeof prefs.volume==="number"){video.volume=Math.min(1,Math.max(0,prefs.volume));volume.value=String(video.volume);}
       if(prefs.muted){video.muted=true;volume.value="0";}
       currentRate=Number(prefs.rate)||1;
@@ -949,12 +949,12 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function seekBy(delta){if(wtGuestLocked()){wtDenyToast();return;}const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;video.currentTime=Math.min(d||Infinity,Math.max(0,(video.currentTime||0)+delta));updateProgress();showOverlay();}
       function seekToRatio(r){if(wtGuestLocked()){wtDenyToast();return;}const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(!d)return;video.currentTime=d*Math.min(1,Math.max(0,r));updateProgress();}
       function flashSaved(){savedBadge.classList.add("visible");if(savedBadgeTimer)clearTimeout(savedBadgeTimer);savedBadgeTimer=setTimeout(()=>savedBadge.classList.remove("visible"),1800);}
-      function saveProgress(force){const t=video.currentTime||0;if(t<1&&!force)return;const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(d>0)savedMarkerPct=Math.min(100,t/d*100);const payload={releaseId:CONFIG.releaseId,sourceId:CONFIG.sourceId,episodePosition:CONFIG.episodePosition,time:t,duration:d,title:${JSON.stringify(safeTitle)},markWatchedSourceId:CONFIG.markWatchedSourceId||undefined};try{localStorage.setItem("miraihub:"+CONFIG.progressKey,JSON.stringify(payload));}catch{}const send=()=>{fetch("/api/v1/player/progress",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(CONFIG.token?{...payload,token:CONFIG.token}:payload),keepalive:true}).catch(()=>{});};if(force){if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}send();return;}if(saveTimer)return;saveTimer=setTimeout(()=>{saveTimer=null;send();},3000);}
+      function saveProgress(force){const t=video.currentTime||0;if(t<1&&!force)return;const d=(!isNaN(video.duration)&&video.duration)?video.duration:0;if(d>0)savedMarkerPct=Math.min(100,t/d*100);const payload={releaseId:CONFIG.releaseId,sourceId:CONFIG.sourceId,episodePosition:CONFIG.episodePosition,time:t,duration:d,title:${JSON.stringify(safeTitle)},markWatchedSourceId:CONFIG.markWatchedSourceId||undefined};try{localStorage.setItem("miraihub:"+CONFIG.progressKey,JSON.stringify(payload));}catch(_e){}const send=()=>{fetch("/api/v1/player/progress",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(CONFIG.token?{...payload,token:CONFIG.token}:payload),keepalive:true}).catch(()=>{});};if(force){if(saveTimer){clearTimeout(saveTimer);saveTimer=null;}send();return;}if(saveTimer)return;saveTimer=setTimeout(()=>{saveTimer=null;send();},3000);}
       function applyResume(){if(resumed||pendingResume<15)return;if(video.duration&&pendingResume>=video.duration-30){pendingResume=0;return;}resumed=true;video.currentTime=pendingResume;video.play().catch(()=>{});resumeText.textContent="Продолжено с "+fmt(pendingResume);resumeToast.classList.add("visible");setTimeout(()=>resumeToast.classList.remove("visible"),3500);}
       if(pendingResume>=15){resumeBtn.onclick=()=>{resumed=true;video.currentTime=pendingResume;resumeToast.classList.remove("visible");video.play().catch(()=>{});};resumeSkip.onclick=()=>{resumed=true;pendingResume=0;video.currentTime=0;resumeToast.classList.remove("visible");saveProgress(true);};}
       function findQuality(label){return CONFIG.qualities.find(q=>q.label===label)||CONFIG.qualities[0];}
       function destroyHls(){if(hls){hls.destroy();hls=null;}}
-      function loadStream(label,autoplay){const item=findQuality(label);if(!item){showError("поток недоступен");return;}currentLabel=item.label;qualityLabelText.textContent=currentLabel;destroyHls();setLoader(true);errorPanel.classList.remove("visible");const url=item.url,isHlsStream=url.includes(".m3u8");const onReady=()=>{setLoader(false);updateProgress();try{video.playbackRate=currentRate;}catch{}if(autoplay)video.play().catch(()=>{});};
+      function loadStream(label,autoplay){const item=findQuality(label);if(!item){showError("поток недоступен");return;}currentLabel=item.label;qualityLabelText.textContent=currentLabel;destroyHls();setLoader(true);errorPanel.classList.remove("visible");const url=item.url,isHlsStream=url.includes(".m3u8");const onReady=()=>{setLoader(false);updateProgress();try{video.playbackRate=currentRate;}catch(_e){}if(autoplay)video.play().catch(()=>{});};
         // crossOrigin нужен, чтобы canvas не «испачкался» и скриншот снялся. Если CDN
         // не отдаёт CORS-заголовки, видео не загрузится — тогда один раз пробуем без него.
         if(corsFailed)video.removeAttribute("crossorigin");else video.crossOrigin="anonymous";
@@ -1023,11 +1023,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
               const js=await rs.json();
               const src=((js&&js.sources)||[])[0];
               return src?{id:t.id,name:t.name,episodes_count:t.episodes_count,sourceId:src.id}:null;
-            }catch{return null;}
+            }catch(_e){return null;}
           }));
           dubTypes=withSources.filter(Boolean);
           renderDubs();
-        }catch{/* список озвучек не критичен — молча остаёмся на текущей */}
+        }catch(_e){/* список озвучек не критичен — молча остаёмся на текущей */}
       }
       function closeDub(){dubOpen=false;if(dubDropdown)dubDropdown.classList.remove("open");}
       if(dubBtn){
@@ -1061,11 +1061,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
           // без этого «следующая серия» ушла бы в прежнюю озвучку.
           playerMsg("dub",{sourceId:t.sourceId,dubberName:t.name});
           showShot("Озвучка: "+t.name);
-        }catch{showShot("Ошибка сети");}
+        }catch(_e){showShot("Ошибка сети");}
         finally{dubBusy=false;setLoader(false);mSheet.classList.remove("open");mdSheet.classList.remove("open");}
       }
       // ── Скорость воспроизведения ──
-      function setRate(r){currentRate=r;try{video.playbackRate=r;}catch{}speedLabelText.textContent=r+"×";if(mSpeedText)mSpeedText.textContent=r+"×";document.querySelectorAll("#speed-dropdown .quality-option, #md-speed-list .quality-option").forEach(b=>b.classList.toggle("active",Number(b.dataset.rate)===r));savePrefs();}
+      function setRate(r){currentRate=r;try{video.playbackRate=r;}catch(_e){}speedLabelText.textContent=r+"×";if(mSpeedText)mSpeedText.textContent=r+"×";document.querySelectorAll("#speed-dropdown .quality-option, #md-speed-list .quality-option").forEach(b=>b.classList.toggle("active",Number(b.dataset.rate)===r));savePrefs();}
       function buildSpeedDropdown(){speedDropdown.innerHTML="";mdSpeedList.innerHTML="";for(const r of SPEEDS){const btn=document.createElement("button");btn.className="quality-option"+(r===currentRate?" active":"");btn.textContent=r+"×";btn.dataset.rate=String(r);btn.onclick=()=>{setRate(r);closeQuality();mdSheet.classList.remove("open");};speedDropdown.appendChild(btn);const btn2=document.createElement("button");btn2.className="quality-option"+(r===currentRate?" active":"");btn2.textContent=r+"×";btn2.dataset.rate=String(r);btn2.onclick=()=>{setRate(r);mdSheet.classList.remove("open");};mdSpeedList.appendChild(btn2);}speedLabelText.textContent=currentRate+"×";if(mSpeedText)mSpeedText.textContent=currentRate+"×";}
       function toggleHk(){hkOpen=!hkOpen;hkModal.classList.toggle("open",hkOpen);if(hkOpen){if(hideTimer)clearTimeout(hideTimer);overlay.classList.add("visible");}else showOverlay();}
       const isTouch = matchMedia("(hover: none)").matches || ("ontouchstart" in window);
@@ -1108,7 +1108,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
           loadStream(tagged[0].label,!wasPaused);
           if(time>0)video.addEventListener("loadedmetadata",()=>{video.currentTime=time;updateProgress();},{once:true});
           showShot("AnimeLib: "+(j.team||"найдено"));
-        }catch{showShot("Ошибка сети");}
+        }catch(_e){showShot("Ошибка сети");}
         finally{alBusy=false;btn.textContent=prevLabel;}
       }
       alButtons.forEach(btn=>btn.addEventListener("click",e=>{e.stopPropagation();runAnimelib(btn);}));
@@ -1117,7 +1117,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         if(document.documentElement.requestFullscreen){document.documentElement.requestFullscreen().catch(()=>{if(video.webkitEnterFullscreen)video.webkitEnterFullscreen();});return;}
         if(video.webkitEnterFullscreen){video.webkitEnterFullscreen();}
       }
-      document.addEventListener("fullscreenchange",()=>{const fs=Boolean(document.fullscreenElement);iconFsExpand.style.display=fs?"none":"block";iconFsShrink.style.display=fs?"block":"none";mIconFsExpand.style.display=fs?"none":"block";mIconFsShrink.style.display=fs?"block":"none";mdFsExp.style.display=fs?"none":"block";mdFsShr.style.display=fs?"block":"none";try{if(fs){if(screen.orientation&&screen.orientation.lock)screen.orientation.lock("landscape").catch(()=>{});}else{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock();}}catch{}});
+      document.addEventListener("fullscreenchange",()=>{const fs=Boolean(document.fullscreenElement);iconFsExpand.style.display=fs?"none":"block";iconFsShrink.style.display=fs?"block":"none";mIconFsExpand.style.display=fs?"none":"block";mIconFsShrink.style.display=fs?"block":"none";mdFsExp.style.display=fs?"none":"block";mdFsShr.style.display=fs?"block":"none";try{if(fs){if(screen.orientation&&screen.orientation.lock)screen.orientation.lock("landscape").catch(()=>{});}else{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock();}}catch(_e){}});
 
       // ── Протяжка прогресса: мышь и тач ──
       const seekFromX=clientX=>{const r=progressTrack.getBoundingClientRect();seekToRatio((clientX-r.left)/r.width);};
@@ -1176,7 +1176,10 @@ export function buildPlayerPage(data: PlayerPageData): string {
       btnHk.addEventListener("click",e=>{e.stopPropagation();toggleHk();});
       hkModal.addEventListener("click",e=>{if(e.target===hkModal)toggleHk();});
       document.addEventListener("click",e=>{if(qualityOpen&&!qualityWrap.contains(e.target))closeQuality();});
-      document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA"].includes(e.target?.tagName))return;const k=e.key.toLowerCase();if(hkOpen){if(k==="?"||k==="escape"){e.preventDefault();toggleHk();}return;}if(k===" "||k==="k"){e.preventDefault();togglePlay();}else if(k==="arrowleft"||k==="j"){e.preventDefault();seekBy(-10);}else if(k==="arrowright"||k==="l"){e.preventDefault();seekBy(10);}else if(k==="arrowup"){e.preventDefault();video.muted=false;video.volume=Math.min(1,video.volume+0.1);volume.value=String(video.volume);}else if(k==="arrowdown"){e.preventDefault();video.volume=Math.max(0,video.volume-0.1);volume.value=String(video.volume);}else if(k==="f"){e.preventDefault();toggleFs();}else if(k==="m"){e.preventDefault();video.muted=!video.muted;}else if(k==="o"){e.preventDefault();const t=video.currentTime||0;const iv=skipIntervals.find(i=>t>=i.start-1&&t<i.end);if(iv){video.currentTime=iv.end;updateProgress();}else seekBy(85);}else if(k==="?"){e.preventDefault();toggleHk();}else if(k>="0"&&k<="9"){e.preventDefault();seekToRatio(Number(k)/10);}showOverlay();});
+      document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA"].includes(e.target&&e.target.tagName))return;const k=e.key.toLowerCase();if(hkOpen){if(k==="?"||k==="escape"){e.preventDefault();toggleHk();}return;}if(k===" "||k==="k"){e.preventDefault();togglePlay();}else if(k==="arrowleft"||k==="j"){e.preventDefault();seekBy(-10);}else if(k==="arrowright"||k==="l"){e.preventDefault();seekBy(10);}else if(k==="arrowup"){e.preventDefault();video.muted=false;video.volume=Math.min(1,video.volume+0.1);volume.value=String(video.volume);}else if(k==="arrowdown"){e.preventDefault();video.volume=Math.max(0,video.volume-0.1);volume.value=String(video.volume);}else if(k==="f"){e.preventDefault();toggleFs();}else if(k==="m"){e.preventDefault();video.muted=!video.muted;}else if(k==="o"){e.preventDefault();const t=video.currentTime||0;const iv=skipIntervals.find(i=>t>=i.start-1&&t<i.end);if(iv){video.currentTime=iv.end;updateProgress();}else seekBy(85);}else if(k==="?"){e.preventDefault();toggleHk();}else if(k>="0"&&k<="9"){e.preventDefault();seekToRatio(Number(k)/10);}showOverlay();});
+      // Пульт Samsung Tizen: «Назад» закрывает плеер через хост, медиаклавиши управляют воспроизведением.
+      // Коды Tizen не пересекаются с обычной клавиатурой, так что на вебе и в Android это не срабатывает.
+      document.addEventListener("keydown",function(e){var c=e.keyCode;var h=true;if(c===10009){playerMsg("back");}else if(c===13&&(document.activeElement===document.body||document.activeElement===video)){togglePlay();showOverlay();}else if(c===10252){togglePlay();showOverlay();}else if(c===415){if(video.paused)togglePlay();showOverlay();}else if(c===19){if(!video.paused)togglePlay();showOverlay();}else if(c===412){seekBy(-10);}else if(c===417){seekBy(10);}else if(c===427){playerMsg("next");}else if(c===428){playerMsg("prev");}else h=false;if(h){e.preventDefault();e.stopPropagation();}},true);
       let historyAdded=false;
       function addToHistory(){if(historyAdded||!CONFIG.token)return;historyAdded=true;fetch("/api/v1/history/add/"+CONFIG.releaseId+"/"+CONFIG.sourceId+"/"+CONFIG.episodePosition+"?token="+encodeURIComponent(CONFIG.token),{headers:authHeaders()}).catch(()=>{});}
       video.addEventListener("play",()=>{updatePlayUi();showOverlay();addToHistory();});
@@ -1230,7 +1233,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         document.getElementById("m-lock").addEventListener("click",(e)=>{e.stopPropagation();mSheet.classList.remove("open");document.body.classList.add("locked");overlay.classList.remove("visible");peekUnlock();});
         document.getElementById("m-unlock").addEventListener("click",(e)=>{e.stopPropagation();document.body.classList.remove("locked");document.body.classList.remove("unlock-peek");if(unlockTimer)clearTimeout(unlockTimer);showOverlay();});
         // Поворот просим у хоста — нативно он надёжнее, — с запасным вариантом на странице
-        document.getElementById("m-rotate").addEventListener("click",(e)=>{e.stopPropagation();playerMsg("rotate");try{if(screen.orientation&&screen.orientation.lock){const t=(screen.orientation.type||"").indexOf("landscape")===0?"portrait-primary":"landscape-primary";screen.orientation.lock(t).catch(()=>{});}}catch{}showOverlay();});
+        document.getElementById("m-rotate").addEventListener("click",(e)=>{e.stopPropagation();playerMsg("rotate");try{if(screen.orientation&&screen.orientation.lock){const t=(screen.orientation.type||"").indexOf("landscape")===0?"portrait-primary":"landscape-primary";screen.orientation.lock(t).catch(()=>{});}}catch(_e){}showOverlay();});
         // Протяжка прогресса в мобильном UI
         const mSeekX=clientX=>{const r=mProgressTrack.getBoundingClientRect();seekToRatio((clientX-r.left)/r.width);};
         mProgressWrap.addEventListener("mousedown",e=>{e.stopPropagation();seeking=true;activeSeekFn=mSeekX;mSeekX(e.clientX);saveProgress(true);});
@@ -1315,11 +1318,11 @@ export function buildPlayerPage(data: PlayerPageData): string {
       // #md-cast на десктопе скрыт через CSS независимо от этого флага.
       function showCast(on){btnCast.style.display=on?"":"none";mdCast.style.display=on?"flex":"none";}
       if(mCast)mCast.style.display="";
-      function castPrompt(){try{if(video.webkitShowPlaybackTargetPicker){video.webkitShowPlaybackTargetPicker();return;}if(video.remote&&video.remote.prompt)video.remote.prompt().catch(()=>{});}catch{}}
+      function castPrompt(){try{if(video.webkitShowPlaybackTargetPicker){video.webkitShowPlaybackTargetPicker();return;}if(video.remote&&video.remote.prompt)video.remote.prompt().catch(()=>{});}catch(_e){}}
       btnCast.addEventListener("click",e=>{e.stopPropagation();castPrompt();});
       if(mCast)mCast.addEventListener("click",e=>{e.stopPropagation();castPrompt();});
       mdCast.addEventListener("click",e=>{e.stopPropagation();castPrompt();});
-      try{if(video.remote&&video.remote.watchAvailability)video.remote.watchAvailability(a=>showCast(a)).catch(()=>{});}catch{}
+      try{if(video.remote&&video.remote.watchAvailability)video.remote.watchAvailability(a=>showCast(a)).catch(()=>{});}catch(_e){}
       video.addEventListener("webkitplaybacktargetavailabilitychanged",e=>{showCast(e.availability==="available");});
 
       // ── Скриншот в личную галерею ──
@@ -1350,7 +1353,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         // stopPropagation обязателен: тап по видео переключает панель управления.
         if(shotFab)shotFab.addEventListener("click",e=>{e.stopPropagation();captureScreenshot();});
         mdShot.addEventListener("click",e=>{e.stopPropagation();captureScreenshot();});
-        document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA"].includes(e.target?.tagName))return;if(e.key.toLowerCase()==="s"&&!e.ctrlKey&&!e.metaKey){e.preventDefault();captureScreenshot();}});
+        document.addEventListener("keydown",e=>{if(["INPUT","TEXTAREA"].includes(e.target&&e.target.tagName))return;if(e.key.toLowerCase()==="s"&&!e.ctrlKey&&!e.metaKey){e.preventDefault();captureScreenshot();}});
       }
 
       // ── Оценка серии по десятибалльной шкале ──
@@ -1457,7 +1460,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       function mdDoUnlock(){document.body.classList.remove("locked");document.body.classList.remove("unlock-peek");if(unlockTimer)clearTimeout(unlockTimer);mdResetIdle();}
       mdLock.addEventListener("click",e=>{e.stopPropagation();mdDoLock();});
       mdUnlock.addEventListener("click",e=>{e.stopPropagation();mdDoUnlock();});
-      mdRotate.addEventListener("click",e=>{e.stopPropagation();playerMsg("rotate");try{if(screen.orientation&&screen.orientation.lock){const t=(screen.orientation.type||"").indexOf("landscape")===0?"portrait-primary":"landscape-primary";screen.orientation.lock(t).catch(()=>{});}}catch{}});
+      mdRotate.addEventListener("click",e=>{e.stopPropagation();playerMsg("rotate");try{if(screen.orientation&&screen.orientation.lock){const t=(screen.orientation.type||"").indexOf("landscape")===0?"portrait-primary":"landscape-primary";screen.orientation.lock(t).catch(()=>{});}}catch(_e){}});
 
       // Автоскрытие в простое: обвязка гаснет через несколько секунд без действий,
       // любое касание возвращает её сразу.
