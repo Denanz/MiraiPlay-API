@@ -175,6 +175,7 @@ export function registerPlayer(scope: FastifyInstance): void {
       design: q.design === 'modern' ? 'modern' : 'legacy',
       titleOriginal: q.origTitle || undefined,
       markWatchedSourceId: q.markSourceId || undefined,
+      tv: q.tv === '1',
     });
 
     reply

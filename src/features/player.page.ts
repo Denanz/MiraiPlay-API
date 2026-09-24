@@ -24,7 +24,11 @@ export interface PlayerPageData {
   /** Настоящий source id для отметки о просмотре, когда `sourceId` ненастоящий
    *  (у AnimeLib это -1, Anixart такого не знает). */
   markWatchedSourceId?: string;
+  /** Встроен в приложение для ТВ Samsung: своя панель под пульт (player.tv.ts). */
+  tv?: boolean;
 }
+
+import { TV_CSS, TV_JS, tvHtml } from './player.tv.js';
 
 function escapeHtml(value: string): string {
   return value
@@ -51,6 +55,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     design: data.design === 'modern' ? 'modern' : 'legacy',
     titleOriginal: data.titleOriginal || '',
     markWatchedSourceId: data.markWatchedSourceId || null,
+    tv: Boolean(data.tv),
   });
   const safeTitle = escapeHtml(data.title);
   const safeSub = escapeHtml(data.subtitle || '');
@@ -523,6 +528,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     .md-an-lb { font-size: 0.76rem; color: rgba(255,255,255,0.6); }
     .md-an-lb b { color: var(--accent); font-variant-numeric: tabular-nums; }
     body.modern #autonext > .an-row { display: none; }
+${data.tv ? TV_CSS : ''}
   </style>
 </head>
 <body>
@@ -867,6 +873,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
     </div>
   </div>
 
+${data.tv ? tvHtml(safeTitle, safeSub) : ''}
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
   <script>
     const CONFIG = ${config};
@@ -1506,6 +1513,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
         }
       }
 
+${data.tv ? TV_JS : ''}
       loadStream(currentLabel,pendingResume<15);
     })();
   </script>
