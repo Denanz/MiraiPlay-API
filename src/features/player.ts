@@ -5,6 +5,7 @@ import { isAllowedKodikUrl, resolveKodik, type ResolvedPlayback } from './kodik.
 import { isAllowedAniLibriaUrl, resolveAniLibria } from './anilibria.js';
 import { resolveAnimelibTeam } from '../services/animelib.js';
 import { buildPlayerPage } from './player.page.js';
+import { TtlCache } from '../services/cache.js';
 import { listShots, openShot, removeShot, saveShot, setNote } from '../services/screenshots.js';
 import { resolveBucket, resolveUserId } from '../services/identity.js';
 import { getAuth as getShikiAuth } from '../services/shikimori-auth.js';
@@ -41,6 +42,8 @@ async function resolveMalId(titles: { ru?: string; orig?: string }): Promise<num
  * Ручки плеера: сама HTML-страница, синк прогресса просмотра и личная галерея
  * скриншотов.
  */
+
+const skipTimesCache = new TtlCache<unknown>({ ttlMs: 24 * 3600_000, maxMemory: 5000 });
 
 const frameAncestors = [
   "'self'",
@@ -429,6 +432,25 @@ export function registerPlayer(scope: FastifyInstance): void {
     const q = req.query as Record<string, string>;
     if (!q.releaseId || !q.sourceId) return reply.code(400).send({ error: 'missing_fields' });
     return reply.send({ ratings: getRatings(await resolveBucket(token), q.releaseId, q.sourceId) });
+  });
+
+  // Таймкоды опенинга/эндинга Aniskip — через нас: старый Chromium на ТВ Samsung
+  // (Tizen 5) не договаривается с api.aniskip.com по TLS. Заодно кэшируем.
+  scope.get('/player/skip-times/:malId/:episode', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { malId, episode } = req.params as { malId: string; episode: string };
+    if (!/^\d{1,7}$/.test(malId) || !/^\d{1,5}$/.test(episode)) return reply.code(400).send({ error: 'bad_params' });
+    const data = await skipTimesCache.wrap(`${malId}:${episode}`, async () => {
+      try {
+        const res = await fetch(
+          `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?types[]=op&types[]=ed&types[]=recap&episodeLength=0`,
+          { signal: AbortSignal.timeout(8000) },
+        );
+        return res.ok ? ((await res.json()) as unknown) : { found: false, results: [] };
+      } catch {
+        return { found: false, results: [] };
+      }
+    }, (v) => ((v as { found?: boolean }).found ? 24 * 3600_000 : 3600_000));
+    return reply.header('cache-control', 'public, max-age=3600').send(data);
   });
 
   // Оценка одной серии, читается плеером при загрузке

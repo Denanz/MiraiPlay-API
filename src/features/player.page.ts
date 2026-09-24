@@ -1201,7 +1201,7 @@ export function buildPlayerPage(data: PlayerPageData): string {
       // ── Aniskip: настоящие таймкоды опенинга и эндинга ──
       if(CONFIG.malId){
         const ep=Number(CONFIG.episodePosition)||1;
-        fetch("https://api.aniskip.com/v2/skip-times/"+CONFIG.malId+"/"+ep+"?types[]=op&types[]=ed&types[]=recap&episodeLength=0")
+        fetch("/api/v1/player/skip-times/"+CONFIG.malId+"/"+ep,{headers:authHeaders()})
           .then(r=>r.ok?r.json():null)
           .then(data=>{
             if(data&&data.found&&Array.isArray(data.results)){
